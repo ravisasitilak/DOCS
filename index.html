@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LUKS + OpenBao Architecture — All Flows</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8f8f6; color: #2c2c2a; padding: 40px 20px; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 24px; font-weight: 600; margin-bottom: 8px; }
+  .subtitle { font-size: 14px; color: #888; margin-bottom: 40px; }
+  .diagram-card { background: #fff; border: 1px solid #e5e5e0; border-radius: 12px; padding: 28px; margin-bottom: 28px; }
+  .diagram-card h2 { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  .diagram-card .desc { font-size: 13px; color: #888; margin-bottom: 20px; }
+  .mermaid { width: 100%; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1a1a1a; color: #e0e0e0; }
+    .diagram-card { background: #242424; border-color: #3a3a3a; }
+    .diagram-card .desc { color: #999; }
+    .subtitle { color: #999; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>LUKS + OpenBao Volume Encryption Architecture</h1>
+<p class="subtitle">VM-level LUKS encryption with OpenBao Transit + KV for key management</p>
+
+<div class="diagram-card">
+<h2>1. Master decision flow — All triggers and paths</h2>
+<p class="desc">Two triggers (boot, hot-attach) feed into one decision tree that branches into Path A (encrypt new) or Path B (decrypt existing)</p>
+<pre class="mermaid">
+flowchart TD
+    T1["Trigger 1: systemd boot.service\n(every boot)"] --> SCAN["Scan all block devices\nlsblk -dpno NAME,TYPE"]
+    T2["Trigger 2: udev rule\n(hot-attach, no reboot)"] --> SINGLE["Single new device\n/dev/vdX"]
+
+    SCAN --> FOREACH["For each /dev/vd(b..z)"]
+    SINGLE --> FOREACH
+    FOREACH --> SERIAL["Get Cinder UUID\nlsblk -ndo SERIAL"]
+
+    SERIAL --> TOKEN{"Cached BAO token\nexists at /run/bao-token?"}
+    TOKEN -->|Yes| USE["Use cached token"]
+    TOKEN -->|No| IMDS["Call custom IMDS\n→ role_id + secret_id\n→ AppRole login\n→ cache token"]
+
+    USE --> CHECK
+    IMDS --> CHECK
+
+    CHECK{"cryptsetup isLuks\n/dev/vdX?"}
+    CHECK -->|"No (new volume)"| PATH_A["Path A: First-time encrypt"]
+    CHECK -->|"Yes (existing)"| PATH_B["Path B: Decrypt + open"]
+
+    PATH_A --> A1["2a: Generate random passphrase\nhead -c 32 /dev/urandom"]
+    A1 --> A2["3a: POST transit/encrypt\n→ get ciphertext back"]
+    A2 --> A3["4a: PUT ciphertext in KV\nluks/volumes/UUID"]
+    A3 --> A4["5a: cryptsetup luksFormat\nusing passphrase"]
+    A4 --> A5["6a: cryptsetup open"]
+    A5 --> A6["7a: mkfs.ext4 + mount"]
+    A6 --> A7["8a: Backup LUKS header to KV"]
+    A7 --> DONE["9a: Wipe passphrase from memory\nUpdate /etc/fstab"]
+
+    PATH_B --> B1["2b: GET ciphertext from KV\nluks/volumes/UUID"]
+    B1 --> B2["3b: POST transit/decrypt\n→ get passphrase back"]
+    B2 --> B3["4b: cryptsetup open\nusing passphrase"]
+    B3 --> B4["5b: mount /mnt/UUID"]
+    B4 --> DONE2["6b: Wipe passphrase from memory"]
+</pre>
+</div>
+
+<div class="diagram-card">
+<h2>2. Auth flow — IMDS + AppRole</h2>
+<p class="desc">Called once per boot (or when token expires). IMDS verifies VM identity, issues short-lived AppRole credentials, VM logs into BAO and caches the token.</p>
+<pre class="mermaid">
+sequenceDiagram
+    participant VM as Guest VM
+    participant IMDS as Custom IMDS
+    participant BAO as OpenBao
+
+    Note over VM: Boot or token expired
+
+    VM->>IMDS: GET /v1/openbao/creds
+    Note over IMDS: Verify VM identity<br/>(instance UUID / source IP)
+    IMDS->>BAO: Generate secret_id for AppRole
+    BAO-->>IMDS: secret_id (TTL, single-use)
+    IMDS-->>VM: role_id + secret_id
+
+    VM->>BAO: POST /auth/approle/login<br/>{role_id, secret_id}
+    BAO-->>VM: token (24h TTL, renewable)
+    Note over VM: Cache token at<br/>/run/bao-token (tmpfs, 0600)
+
+    loop Every 8 hours
+        VM->>BAO: POST /auth/token/renew-self
+        BAO-->>VM: renewed token
+    end
+
+    Note over VM: If renewal fails → call IMDS again
+</pre>
+</div>
+
+<div class="diagram-card">
+<h2>3. Path A — First-time encryption (new volume)</h2>
+<p class="desc">Volume has no LUKS header. Generate passphrase → Transit encrypt → store ciphertext in KV → luksFormat → mount → wipe passphrase from memory.</p>
+<pre class="mermaid">
+sequenceDiagram
+    participant VM as Guest VM
+    participant TR as OpenBao Transit
+    participant KV as OpenBao KV Store
+    participant VOL as Volume /dev/vdX
+
+    Note over VM: Trigger: boot.service or udev
+
+    VM->>VOL: lsblk -o SERIAL → get Cinder UUID
+    VOL-->>VM: VOL_ID = a1b2c3d4
+
+    VM->>VOL: cryptsetup isLuks /dev/vdX
+    VOL-->>VM: NOT LUKS (exit code 1)
+    Note over VM: New volume → Path A
+
+    Note over VM: 2a: Generate passphrase<br/>head -c 32 /dev/urandom<br/>(memory only)
+
+    VM->>TR: 3a: POST transit/encrypt/luks-master<br/>{plaintext: base64(passphrase)}
+    Note over TR: Encrypts with internal key<br/>Does NOT store anything
+    TR-->>VM: {ciphertext: vault:v1:8SD...}
+
+    VM->>KV: 4a: PUT luks/data/volumes/VOL_ID<br/>{ciphertext: vault:v1:8SD...}
+    Note over KV: Stores ciphertext permanently<br/>Barrier-encrypted on BAO disk
+
+    VM->>VOL: 5a: cryptsetup luksFormat --key-file -
+    Note over VOL: LUKS header created<br/>Master key encrypted by passphrase
+
+    VM->>VOL: 6a: cryptsetup open
+    VM->>VOL: 7a: mkfs.ext4 + mount
+
+    VM->>KV: 8a: Store LUKS header backup
+
+    Note over VM: 9a: unset PASS<br/>Passphrase exists NOWHERE now
+</pre>
+</div>
+
+<div class="diagram-card">
+<h2>4. Path B — Decrypt existing volume (reboot / re-attach)</h2>
+<p class="desc">Volume has LUKS header. Read ciphertext from KV → Transit decrypt → get passphrase → luksOpen → mount → wipe passphrase.</p>
+<pre class="mermaid">
+sequenceDiagram
+    participant VM as Guest VM
+    participant KV as OpenBao KV Store
+    participant TR as OpenBao Transit
+    participant VOL as Volume /dev/vdX
+
+    Note over VM: Trigger: boot.service or udev
+
+    VM->>VOL: lsblk -o SERIAL → get Cinder UUID
+    VOL-->>VM: VOL_ID = a1b2c3d4
+
+    VM->>VOL: cryptsetup isLuks /dev/vdX
+    VOL-->>VM: IS LUKS (exit code 0)
+    Note over VM: Existing volume → Path B
+
+    VM->>KV: 2b: GET luks/data/volumes/VOL_ID
+    Note over KV: Reads stored ciphertext
+    KV-->>VM: {ciphertext: vault:v1:8SD...}
+    Note over VM: Ciphertext is useless alone
+
+    VM->>TR: 3b: POST transit/decrypt/luks-master<br/>{ciphertext: vault:v1:8SD...}
+    Note over TR: Decrypts with internal key
+    TR-->>VM: {plaintext: base64(passphrase)}
+    Note over VM: Passphrase now in memory
+
+    VM->>VOL: 4b: cryptsetup open --key-file -
+    Note over VOL: LUKS uses passphrase to<br/>unlock master key
+
+    VM->>VOL: 5b: mount /mnt/VOL_ID
+    Note over VM: Data accessible
+
+    Note over VM: 6b: unset PASS<br/>Passphrase wiped from memory
+</pre>
+</div>
+
+<div class="diagram-card">
+<h2>5. OpenBao internals — What's inside the server</h2>
+<p class="desc">One server, multiple engines. Transit and KV don't talk to each other — you connect them with separate API calls. Everything is barrier-encrypted on disk.</p>
+<pre class="mermaid">
+flowchart TD
+    subgraph BAO["OpenBao server — https://openbao:8200"]
+        subgraph AUTH["Auth engines"]
+            AR["AppRole\n/auth/approle/login\nValidates role_id + secret_id\nReturns token"]
+        end
+
+        subgraph SECRETS["Secret engines"]
+            TR["Transit engine\n/transit/encrypt/luks-master\n/transit/decrypt/luks-master\nStateless encrypt/decrypt\nTransit key in MEMORY only"]
+            KV["KV store\n/luks/data/volumes/uuid\nStores ciphertext of passphrases\nStores LUKS header backups\nSimple key-value database"]
+        end
+
+        subgraph SYS["System layer"]
+            AUDIT["Audit log\nEvery API call recorded"]
+            POLICY["Policies\nControls which token\ncan access which paths"]
+        end
+
+        subgraph STORAGE["Barrier encryption layer"]
+            BARRIER["ALL data encrypted before\nwriting to disk\nBarrier key protected by unseal keys"]
+            DISK["Raft storage / disk\nEverything is encrypted blobs"]
+        end
+    end
+
+    VM["Guest VM"] -->|"Same URL\nsame token\ndifferent paths"| AUTH
+    VM --> SECRETS
+    TR -.->|"Does NOT write to"| KV
+    KV -.->|"Does NOT call"| TR
+    AUTH --> POLICY
+    SECRETS --> AUDIT
+    KV --> BARRIER
+    BARRIER --> DISK
+</pre>
+</div>
+
+<div class="diagram-card">
+<h2>6. Volume migration flow</h2>
+<p class="desc">Detach from VM-A, attach to VM-B. Passphrase is bound to volume UUID in BAO KV, so VM-B can look it up and decrypt (if policy allows).</p>
+<pre class="mermaid">
+sequenceDiagram
+    participant A as VM-A
+    participant OS as OpenStack Nova/Cinder
+    participant BAO as OpenBao
+    participant B as VM-B
+
+    Note over A: Volume currently mounted
+
+    A->>A: umount + cryptsetup close
+
+    A->>OS: Detach volume
+    OS->>B: Attach volume to VM-B
+    Note over B: /dev/vdX appears
+
+    B->>B: lsblk -o SERIAL → VOL_ID
+    B->>B: cryptsetup isLuks → Yes
+
+    B->>BAO: GET luks/data/volumes/VOL_ID
+    Note over BAO: Policy must allow VM-B<br/>to read this path
+    BAO-->>B: {ciphertext: vault:v1:...}
+
+    B->>BAO: POST transit/decrypt/luks-master
+    BAO-->>B: {plaintext: passphrase}
+
+    B->>B: cryptsetup open + mount
+    Note over B: Same volume different VM<br/>same passphrase via BAO
+</pre>
+</div>
+
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    themeVariables: {
+      darkMode: dark,
+      fontSize: '13px',
+      lineColor: dark ? '#9c9a92' : '#73726c',
+      textColor: dark ? '#c2c0b6' : '#3d3d3a',
+      primaryColor: dark ? '#3C3489' : '#EEEDFE',
+      primaryTextColor: dark ? '#CECBF6' : '#26215C',
+      primaryBorderColor: dark ? '#AFA9EC' : '#534AB7',
+      secondaryColor: dark ? '#085041' : '#E1F5EE',
+      secondaryTextColor: dark ? '#9FE1CB' : '#04342C',
+      secondaryBorderColor: dark ? '#5DCAA5' : '#0F6E56',
+      tertiaryColor: dark ? '#444441' : '#F1EFE8',
+      tertiaryTextColor: dark ? '#D3D1C7' : '#2C2C2A',
+      tertiaryBorderColor: dark ? '#B4B2A9' : '#5F5E5A',
+    }
+  });
+</script>
+</body>
+</html>
