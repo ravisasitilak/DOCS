@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LUKS + OpenBao Volume Encryption — Configs</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--bg:#f8f8f6;--fg:#2c2c2a;--card:#fff;--border:#e5e5e0;--muted:#888;--accent:#534AB7;--accent-bg:#EEEDFE;--accent-fg:#26215C;--green-bg:#E1F5EE;--green-fg:#04342C;--green-border:#0F6E56;--nav-bg:#fff;--code-bg:#f4f3ef;--hover:#f0efeb}
+  @media(prefers-color-scheme:dark){
+    :root{--bg:#1a1a1a;--fg:#e0e0e0;--card:#242424;--border:#3a3a3a;--muted:#999;--accent:#AFA9EC;--accent-bg:#3C3489;--accent-fg:#CECBF6;--green-bg:#085041;--green-fg:#9FE1CB;--green-border:#5DCAA5;--nav-bg:#242424;--code-bg:#2a2a2a;--hover:#333}
+  }
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--fg);line-height:1.6}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  /* Nav */
+  nav{background:var(--nav-bg);border-bottom:1px solid var(--border);padding:0 20px;position:sticky;top:0;z-index:100}
+  nav .inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:0;height:52px;overflow-x:auto}
+  nav .logo{font-weight:700;font-size:15px;margin-right:28px;white-space:nowrap;color:var(--fg)}
+  nav a.nav-link{font-size:13px;font-weight:500;color:var(--muted);padding:14px 14px;white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
+  nav a.nav-link:hover{color:var(--fg);text-decoration:none}
+  nav a.nav-link.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+  /* Layout */
+  .container{max-width:1100px;margin:0 auto;padding:40px 20px 80px}
+  h1{font-size:28px;font-weight:700;margin-bottom:6px}
+  .subtitle{font-size:14px;color:var(--muted);margin-bottom:36px}
+  h2{font-size:20px;font-weight:600;margin:36px 0 12px}
+  h3{font-size:16px;font-weight:600;margin:24px 0 8px}
+  p{margin-bottom:14px}
+
+  /* Cards */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:28px;margin-bottom:24px}
+  .card h3{margin-top:0}
+
+  /* Tables */
+  table{width:100%;border-collapse:collapse;margin:16px 0 24px;font-size:14px}
+  th{text-align:left;font-weight:600;padding:10px 14px;border-bottom:2px solid var(--border);font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+
+  /* Code */
+  code{font-family:'SF Mono',Menlo,monospace;font-size:13px;background:var(--code-bg);padding:2px 6px;border-radius:4px}
+  pre{background:var(--code-bg);border-radius:8px;padding:18px 20px;overflow-x:auto;margin:12px 0 20px;font-size:13px;line-height:1.5}
+  pre code{background:none;padding:0}
+
+  /* Section labels */
+  .sl{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:44px 0 14px;padding-top:20px;border-top:1px solid var(--border)}
+  .sl:first-of-type{border-top:none;margin-top:0;padding-top:0}
+
+  /* Hero */
+  .hero{background:var(--accent-bg);border:1px solid var(--accent);border-radius:12px;padding:28px;margin-bottom:32px;color:var(--accent-fg)}
+  .hero h2{margin:0 0 8px;color:var(--accent-fg)}
+  .hero p{color:var(--accent-fg);opacity:.85;margin-bottom:0}
+
+  /* Badge */
+  .badge{display:inline-block;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px}
+  .badge-green{background:var(--green-bg);color:var(--green-fg);border:1px solid var(--green-border)}
+  .badge-accent{background:var(--accent-bg);color:var(--accent-fg);border:1px solid var(--accent)}
+</style>
+</head>
+<body>
+<nav>
+  <div class="inner">
+    <span class="logo">LUKS + OpenBao</span>
+    <a href="index.html" class="nav-link">Overview</a>
+    <a href="diagrams.html" class="nav-link">Diagrams</a>
+    <a href="configs.html" class="nav-link active">Configs</a>
+    <a href="scripts.html" class="nav-link">Scripts</a>
+    <a href="flows.html" class="nav-link">Flows</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<h1>Configuration</h1>
+<p class="subtitle">All OpenBao, Cinder, IMDS, and VM-side configuration for LUKS + OpenBao volume encryption</p>
+
+<!-- Section 1: OpenBao Configuration -->
+<h2 id="openbao">OpenBao Configuration</h2>
+
+<div class="card">
+  <h3>Enable Transit engine and create encryption key</h3>
+  <p>Run these commands on the OpenBao server:</p>
+  <pre><code>bao secrets enable transit
+bao write transit/keys/luks-master type=aes256-gcm96</code></pre>
+  <p>The Transit key <code>luks-master</code> is created inside OpenBao's memory. It is never exported and never stored in plaintext on disk.</p>
+</div>
+
+<div class="card">
+  <h3>Enable KV v2 store</h3>
+  <p>Create a dedicated KV store at the <code>luks</code> mount path for storing encrypted passphrases and LUKS headers:</p>
+  <pre><code>bao secrets enable -path=luks kv-v2</code></pre>
+</div>
+
+<div class="card">
+  <h3>OpenBao data layout</h3>
+  <p>After enabling Transit and KV, the data structure is:</p>
+  <pre><code>transit/keys/luks-master                — Transit encryption key (internal)
+luks/data/volumes/{cinder-vol-uuid}     — encrypted passphrase (ciphertext)
+luks/data/headers/{cinder-vol-uuid}     — LUKS header backup (disaster recovery)</code></pre>
+  <p>The volume UUID (obtained from Cinder) uniquely identifies each volume's stored secrets.</p>
+</div>
+
+<div class="card">
+  <h3>JWT auth role policy</h3>
+  <p>Add this policy to the existing JWT auth role. If you haven't already set up JWT auth, see the OpenStack Integration guide. The JWT auth role is already configured with <code>project_id</code>, <code>instance_id</code>, and <code>instance_role</code> claims.</p>
+  <p>Create a file called <code>jwt-luks-policy.hcl</code>:</p>
+  <pre><code># Added to existing JWT auth role policy
+# Allows VMs to encrypt/decrypt LUKS passphrases via Transit
+path "transit/encrypt/luks-master" {
+  capabilities = ["update"]
+}
+
+path "transit/decrypt/luks-master" {
+  capabilities = ["update"]
+}
+
+# Allows VMs to store/retrieve encrypted passphrases by volume UUID
+path "luks/data/volumes/*" {
+  capabilities = ["create", "read", "update", "list"]
+}
+
+# Allows VMs to store/retrieve LUKS header backups
+path "luks/data/headers/*" {
+  capabilities = ["create", "read"]
+}</code></pre>
+  <p>Write this policy to OpenBao and bind it to the JWT auth role:</p>
+  <pre><code>bao policy write jwt-luks ./jwt-luks-policy.hcl
+bao auth jwt configure -path jwt
+bao write auth/jwt/role/your-role-name \
+  policies=default,jwt-luks \
+  bound_audiences="your-audience" \
+  user_claim="sub" \
+  role_type="jwt"</code></pre>
+  <p style="margin-bottom:0">Replace <code>your-role-name</code> and <code>your-audience</code> with values from your existing JWT auth setup. The policy grants VMs permission to encrypt/decrypt passphrases via Transit and read/write encrypted data in the KV store.</p>
+</div>
+
+<!-- Section 2: Cinder Volume Type -->
+<h2 id="cinder">Cinder Volume Type</h2>
+
+<div class="card">
+  <h3>Create the volume type</h3>
+  <p>On the OpenStack control plane, create a plain volume type (no encryption provider, no Barbican):</p>
+  <pre><code>openstack volume type create secure-volume</code></pre>
+  <p>This is just a name label. Cinder does no encryption &mdash; it's purely a flag that luks-agent checks on the VM.</p>
+</div>
+
+<div class="card">
+  <h3>Set the encryption flag property</h3>
+  <p>Add a property to the volume type that tells luks-agent which volumes should be encrypted:</p>
+  <pre><code>openstack volume type set secure-volume --property openbao_encrypt=true</code></pre>
+  <p>luks-agent queries Cinder (via IMDS) for each volume's type and looks for this property. Only volumes with <code>openbao_encrypt=true</code> get encrypted.</p>
+</div>
+
+<div class="card">
+  <h3>Customer usage</h3>
+  <p>Customers create encrypted volumes by specifying the type:</p>
+  <pre><code># Encrypted volume
+openstack volume create --type secure-volume --size 100 my-secret-data
+
+# Non-encrypted volume (default)
+openstack volume create --size 100 my-logs</code></pre>
+  <p style="margin-bottom:0">The type name is all the customer needs to know. Everything else happens automatically inside the VM.</p>
+</div>
+
+<!-- Section 3: IMDS Endpoint Specifications -->
+<h2 id="imds">IMDS Endpoint Specifications</h2>
+
+<div class="card">
+  <h3>Overview</h3>
+  <p>The custom IMDS service (imds-app.py) has three endpoints. The first is modified from the existing flow, and the other two are new.</p>
+</div>
+
+<div class="card">
+  <h3 id="imds-token">POST /v1/token (modified)</h3>
+
+  <p><strong>Called by:</strong> Nova during VM creation (cloud-init runs this)</p>
+
+  <p><strong>Existing behavior:</strong></p>
+  <ul style="padding-left:20px;font-size:14px;line-height:1.8;margin-bottom:16px">
+    <li>IMDS receives instance metadata (project-id, instance-id, instance-role)</li>
+    <li>IMDS signs a JWT (RSA-4096, 60-second TTL) with claims: <code>project_id</code>, <code>instance_id</code>, <code>instance_role</code></li>
+    <li>IMDS calls OpenBao <code>POST /auth/jwt/login</code> with the JWT</li>
+    <li>OpenBao validates the JWT and returns a project-scoped token (1h TTL)</li>
+    <li>IMDS returns the token to Nova, which delivers it to the VM via <code>vendor_data2.json</code></li>
+  </ul>
+
+  <p><strong>New additions for LUKS:</strong></p>
+  <ul style="padding-left:20px;font-size:14px;line-height:1.8;margin-bottom:16px">
+    <li>Query Cinder API for volumes attached to this instance</li>
+    <li>Check each volume's type for the <code>openbao_encrypt=true</code> property</li>
+    <li>Include volume encryption flags in the vendor data response (as <code>volumes.json</code>)</li>
+    <li>Include luks-agent script, systemd units, and udev rules in vendor data response (as base64-encoded tar or individual files)</li>
+  </ul>
+
+  <p><strong>Returns:</strong></p>
+  <pre><code>{
+  "bao_token": "s.xyzabc...",
+  "bao_address": "https://openbao.internal:8200",
+  "vendor_data2": {
+    "luks_agent_script": "#!/bin/bash\n...",
+    "systemd_units": {
+      "luks-agent-boot.service": "...",
+      "luks-agent@.service": "...",
+      "luks-token-renew.service": "...",
+      "luks-token-renew.timer": "..."
+    },
+    "udev_rules": "...",
+    "agent_conf": "[openbao]\naddress = ...",
+    "volumes": [
+      {
+        "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "device": "/dev/vdb",
+        "encrypt": true,
+        "volume_type": "secure-volume"
+      },
+      {
+        "uuid": "f9e8d7c6-b5a4-3210-fedc-ba0987654321",
+        "device": "/dev/vdc",
+        "encrypt": false,
+        "volume_type": "default"
+      }
+    ]
+  }
+}</code></pre>
+  <p style="margin-bottom:0">The vendor data is delivered by cloud-init to the VM. It contains no secrets &mdash; only scripts and config. The BAO token travels separately and is cached on tmpfs.</p>
+</div>
+
+<div class="card">
+  <h3 id="imds-renew">POST /v1/renew (new)</h3>
+
+  <p><strong>Called by:</strong> VM itself every 45 minutes (via systemd timer)</p>
+
+  <p><strong>What it does:</strong></p>
+  <ul style="padding-left:20px;font-size:14px;line-height:1.8;margin-bottom:16px">
+    <li>Verifies the VM by source IP (looks up instance-id from IP)</li>
+    <li>Signs a new JWT (RSA-4096, 60-second TTL)</li>
+    <li>Calls OpenBao <code>POST /auth/jwt/login</code> with the new JWT</li>
+    <li>Returns a fresh BAO token (1h TTL)</li>
+  </ul>
+
+  <p><strong>Request:</strong></p>
+  <pre><code>POST /v1/renew
+Content-Type: application/json
+
+{
+  "instance_id": "i-abc123"
+}</code></pre>
+
+  <p><strong>Response:</strong></p>
+  <pre><code>{
+  "bao_token": "s.newtoken...",
+  "bao_address": "https://openbao.internal:8200",
+  "ttl_seconds": 3600
+}</code></pre>
+  <p style="margin-bottom:0">The VM caches the new token at <code>/run/bao-token</code> (tmpfs, mode 0600). This ensures uninterrupted access to OpenBao for volume operations.</p>
+</div>
+
+<div class="card">
+  <h3 id="imds-volumes">GET /v1/volumes/{cinder-vol-uuid} (new)</h3>
+
+  <p><strong>Called by:</strong> VM when a volume is hot-attached</p>
+
+  <p><strong>What it does:</strong></p>
+  <ul style="padding-left:20px;font-size:14px;line-height:1.8;margin-bottom:16px">
+    <li>Verifies the VM by source IP</li>
+    <li>Queries Cinder for the volume type</li>
+    <li>Checks for <code>openbao_encrypt=true</code> property</li>
+    <li>Returns whether the volume should be encrypted</li>
+  </ul>
+
+  <p><strong>Why this endpoint:</strong> VMs cannot access Cinder directly (no credentials). IMDS holds admin credentials and acts as a proxy for volume metadata.</p>
+
+  <p><strong>Request:</strong></p>
+  <pre><code>GET /v1/volumes/a1b2c3d4-e5f6-7890-abcd-ef1234567890</code></pre>
+
+  <p><strong>Response:</strong></p>
+  <pre><code>{
+  "encrypt": true,
+  "volume_type": "secure-volume",
+  "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}</code></pre>
+  <p style="margin-bottom:0">The VM receives this response and knows whether to encrypt the newly attached volume. No credentials or tokens are returned &mdash; only metadata.</p>
+</div>
+
+<!-- Section 4: agent.conf -->
+<h2 id="agent-conf">agent.conf</h2>
+
+<div class="card">
+  <h3>Configuration file location and format</h3>
+  <p>Path: <code>/etc/luks-agent/agent.conf</code></p>
+  <p>Format: INI-style configuration read by luks-agent.sh</p>
+  <pre><code># /etc/luks-agent/agent.conf
+# Configuration for luks-agent.sh
+
+[openbao]
+# OpenBao server address
+address = https://openbao.internal:8200
+
+# Transit key name for passphrase encryption
+transit_key = luks-master
+
+# KV mount path for storing encrypted passphrases
+kv_mount = luks
+
+# Path to cached BAO token (tmpfs)
+token_file = /run/bao-token
+
+[luks]
+# LUKS format version
+luks_type = luks2
+
+# Mount base path for encrypted volumes
+mount_base = /mnt
+
+# Cipher specification
+cipher = aes-xts-plain64
+key_size = 512
+hash = sha256
+
+[imds]
+# IMDS endpoint for volume type checks (hot-attach)
+address = http://169.254.169.254
+
+# Endpoint for token renewal
+renew_endpoint = /v1/renew
+
+# Endpoint for volume type check
+volumes_endpoint = /v1/volumes</code></pre>
+  <p><strong>Notes:</strong></p>
+  <ul style="padding-left:20px;font-size:14px;line-height:1.8">
+    <li><code>[openbao]</code> section: OpenBao server URL and key names (shared across all VMs)</li>
+    <li><code>[luks]</code> section: LUKS parameters (cipher, key size, mount point)</li>
+    <li><code>[imds]</code> section: IMDS endpoint URLs (for token renewal and volume checks)</li>
+    <li><code>token_file</code> must be on tmpfs to ensure tokens are lost on power off</li>
+    <li>Key size 512 is standard for XTS mode (256-bit key used twice for XTS-plain64)</li>
+  </ul>
+</div>
+
+<!-- Section 5: volumes.json -->
+<h2 id="volumes-json">volumes.json</h2>
+
+<div class="card">
+  <h3>Volume metadata delivered at boot</h3>
+  <p>Path: <code>/etc/luks-agent/volumes.json</code></p>
+  <p>Created by cloud-init from IMDS <code>/v1/token</code> response. Contains volume UUIDs, device names, and encryption flags.</p>
+  <pre><code>{
+  "volumes": [
+    {
+      "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "device": "/dev/vdb",
+      "encrypt": true,
+      "volume_type": "secure-volume"
+    },
+    {
+      "uuid": "f9e8d7c6-b5a4-3210-fedc-ba0987654321",
+      "device": "/dev/vdc",
+      "encrypt": false,
+      "volume_type": "default"
+    }
+  ]
+}</code></pre>
+
+  <h3>Usage</h3>
+  <p>On boot, <code>luks-agent-boot.service</code> reads this file and:</p>
+  <ul style="padding-left:20px;font-size:14px;line-height:1.8">
+    <li>For each volume with <code>"encrypt": true</code>: format with LUKS2, unlock using OpenBao passphrase, mount at <code>/mnt/{uuid}</code></li>
+    <li>For each volume with <code>"encrypt": false</code>: skip (let normal Cinder volume attachment handle it)</li>
+  </ul>
+
+  <h3>Hot-attach volumes</h3>
+  <p>When a new volume is hot-attached:</p>
+  <ul style="padding-left:20px;font-size:14px;line-height:1.8">
+    <li>udev rule triggers <code>luks-agent@{uuid}.service</code></li>
+    <li>luks-agent calls IMDS <code>GET /v1/volumes/{uuid}</code> to check encryption flag (instead of reading static <code>volumes.json</code>)</li>
+    <li>If encrypted, formats and mounts; otherwise skips</li>
+  </ul>
+
+  <p style="margin-bottom:0"><strong>Why separate the two flows:</strong> Boot volumes are known at instance creation time (IMDS has them). Hot-attached volumes are unknown until runtime, so IMDS queries happen dynamically.</p>
+</div>
+
+<!-- Section 6: Files delivered to VM -->
+<h2 id="vm-files">Files Delivered to VM</h2>
+
+<div class="card">
+  <h3>Complete file list</h3>
+  <table>
+    <thead>
+      <tr><th>Path</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/usr/local/bin/luks-agent.sh</code></td>
+        <td>Main encryption/decryption script. Reads config, queries OpenBao, formats LUKS volumes, manages passphrases. Called by systemd units.</td>
+      </tr>
+      <tr>
+        <td><code>/etc/systemd/system/luks-agent-boot.service</code></td>
+        <td>Runs at boot. Reads <code>volumes.json</code>, processes all attached volumes, encrypts/unlocks as needed. Ordered after cloud-init finishes and network is up.</td>
+      </tr>
+      <tr>
+        <td><code>/etc/systemd/system/luks-agent@.service</code></td>
+        <td>Template service for hot-attach. Instantiated as <code>luks-agent@{uuid}.service</code> by udev rule. Handles dynamically attached volumes.</td>
+      </tr>
+      <tr>
+        <td><code>/etc/systemd/system/luks-token-renew.service</code></td>
+        <td>Renews BAO token by calling IMDS <code>/v1/renew</code>. Caches fresh token at <code>/run/bao-token</code>. Runs on timer.</td>
+      </tr>
+      <tr>
+        <td><code>/etc/systemd/system/luks-token-renew.timer</code></td>
+        <td>Triggers <code>luks-token-renew.service</code> every 45 minutes. BAO tokens have 1h TTL, so renew at 45min keeps them fresh.</td>
+      </tr>
+      <tr>
+        <td><code>/etc/udev/rules.d/99-luks-auto.rules</code></td>
+        <td>udev rule that triggers <code>luks-agent@{uuid}.service</code> when a new block device appears. Detects hot-attached volumes.</td>
+      </tr>
+      <tr>
+        <td><code>/etc/luks-agent/agent.conf</code></td>
+        <td>Configuration file with OpenBao address, Transit key name, KV mount path, LUKS parameters, IMDS endpoints. Sourced by luks-agent.sh.</td>
+      </tr>
+      <tr>
+        <td><code>/etc/luks-agent/volumes.json</code></td>
+        <td>JSON file with boot-time volume metadata (UUIDs, device names, encryption flags). Written by cloud-init from IMDS response.</td>
+      </tr>
+      <tr>
+        <td><code>/run/bao-token</code></td>
+        <td>Cached BAO token (tmpfs, mode 0600). Populated at boot via IMDS, renewed every 45 minutes. Lost on power off. Accessed by luks-agent for OpenBao API calls.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Delivery methods</h3>
+  <p><strong>Option 1: Golden image</strong></p>
+  <ul style="padding-left:20px;font-size:14px;line-height:1.8">
+    <li>All files baked into a Glance image during image build (Ansible/virt-customize)</li>
+    <li>VM boots with everything pre-installed</li>
+    <li>Fast boot, no runtime package install</li>
+  </ul>
+
+  <p><strong>Option 2: Vendor data (cloud-init)</strong></p>
+  <ul style="padding-left:20px;font-size:14px;line-height:1.8;margin-bottom:0">
+    <li>All files embedded in Nova vendor data JSON by IMDS at <code>/v1/token</code></li>
+    <li>cloud-init extracts them on first boot and creates the files</li>
+    <li>Works with any Linux image that has cloud-init</li>
+    <li>First boot slower (~30-90s), subsequent boots fast</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>

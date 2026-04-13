@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scripts — LUKS + OpenBao Volume Encryption</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--bg:#f8f8f6;--fg:#2c2c2a;--card:#fff;--border:#e5e5e0;--muted:#888;--accent:#534AB7;--accent-bg:#EEEDFE;--accent-fg:#26215C;--green-bg:#E1F5EE;--green-fg:#04342C;--green-border:#0F6E56;--nav-bg:#fff;--code-bg:#f4f3ef;--hover:#f0efeb}
+  @media(prefers-color-scheme:dark){
+    :root{--bg:#1a1a1a;--fg:#e0e0e0;--card:#242424;--border:#3a3a3a;--muted:#999;--accent:#AFA9EC;--accent-bg:#3C3489;--accent-fg:#CECBF6;--green-bg:#085041;--green-fg:#9FE1CB;--green-border:#5DCAA5;--nav-bg:#242424;--code-bg:#2a2a2a;--hover:#333}
+  }
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--fg);line-height:1.6}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  /* Nav */
+  nav{background:var(--nav-bg);border-bottom:1px solid var(--border);padding:0 20px;position:sticky;top:0;z-index:100}
+  nav .inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:0;height:52px;overflow-x:auto}
+  nav .logo{font-weight:700;font-size:15px;margin-right:28px;white-space:nowrap;color:var(--fg)}
+  nav a.nav-link{font-size:13px;font-weight:500;color:var(--muted);padding:14px 14px;white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
+  nav a.nav-link:hover{color:var(--fg);text-decoration:none}
+  nav a.nav-link.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+  /* Layout */
+  .container{max-width:1100px;margin:0 auto;padding:40px 20px 80px}
+  h1{font-size:28px;font-weight:700;margin-bottom:6px}
+  .subtitle{font-size:14px;color:var(--muted);margin-bottom:36px}
+  h2{font-size:20px;font-weight:600;margin:36px 0 12px}
+  h3{font-size:16px;font-weight:600;margin:24px 0 8px}
+  p{margin-bottom:14px}
+
+  /* Cards */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:28px;margin-bottom:24px}
+  .card h3{margin-top:0}
+
+  /* Tables */
+  table{width:100%;border-collapse:collapse;margin:16px 0 24px;font-size:14px}
+  th{text-align:left;font-weight:600;padding:10px 14px;border-bottom:2px solid var(--border);font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+
+  /* Code */
+  code{font-family:'SF Mono',Menlo,monospace;font-size:13px;background:var(--code-bg);padding:2px 6px;border-radius:4px}
+  pre{background:var(--code-bg);border-radius:8px;padding:18px 20px;overflow-x:auto;margin:12px 0 20px;font-size:13px;line-height:1.5}
+  pre code{background:none;padding:0}
+
+  /* Section labels */
+  .sl{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:44px 0 14px;padding-top:20px;border-top:1px solid var(--border)}
+  .sl:first-of-type{border-top:none;margin-top:0;padding-top:0}
+
+  /* Hero */
+  .hero{background:var(--accent-bg);border:1px solid var(--accent);border-radius:12px;padding:28px;margin-bottom:32px;color:var(--accent-fg)}
+  .hero h2{margin:0 0 8px;color:var(--accent-fg)}
+  .hero p{color:var(--accent-fg);opacity:.85;margin-bottom:0}
+
+  /* Badge */
+  .badge{display:inline-block;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px}
+  .badge-green{background:var(--green-bg);color:var(--green-fg);border:1px solid var(--green-border)}
+  .badge-accent{background:var(--accent-bg);color:var(--accent-fg);border:1px solid var(--accent)}
+</style>
+</head>
+<body>
+<nav>
+  <div class="inner">
+    <span class="logo">LUKS + OpenBao</span>
+    <a href="index.html" class="nav-link">Overview</a>
+    <a href="diagrams.html" class="nav-link">Diagrams</a>
+    <a href="configs.html" class="nav-link">Configs</a>
+    <a href="scripts.html" class="nav-link active">Scripts</a>
+    <a href="flows.html" class="nav-link">Flows</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<h1>Scripts & Systemd Units</h1>
+<p class="subtitle">Complete, production-ready implementation of the LUKS + OpenBao volume encryption architecture</p>
+
+<!-- Section 1: luks-agent.sh -->
+<div class="sl" id="luks-agent">Section 1: luks-agent.sh</div>
+<p>The main encryption/decryption script. Handles LUKS formatting on first boot and unlocking on subsequent boots. Supports both boot-time scanning and hot-attach via udev.</p>
+
+<div class="card">
+<h3>Installation path</h3>
+<p><code>/usr/local/bin/luks-agent.sh</code> — Deploy via golden image or vendor data</p>
+</div>
+
+<div class="card">
+<h3>Usage</h3>
+<pre><code>luks-agent.sh boot          # Boot-time: scan all /dev/vd[b-z]
+luks-agent.sh attach vdX    # Hot-attach: handle single device
+</code></pre>
+</div>
+
+<div class="card">
+<h3>Complete source</h3>
+<pre><code>#!/usr/bin/env bash
+# /usr/local/bin/luks-agent.sh
+# LUKS volume encryption agent — manages LUKS formatting and unlocking
+# using OpenBao Transit (encrypt/decrypt) and KV (ciphertext storage).
+#
+# Usage:
+#   luks-agent.sh boot          — scan all /dev/vd[b-z] at boot
+#   luks-agent.sh attach vdX    — handle single hot-attached device
+#
+# Requires: cryptsetup, jq, curl, lsblk
+
+set -euo pipefail
+
+# --- Configuration ---
+CONF="/etc/luks-agent/agent.conf"
+TOKEN_FILE="/run/bao-token"
+VOLUMES_JSON="/etc/luks-agent/volumes.json"
+IMDS_ADDR="http://169.254.169.254"
+MOUNT_BASE="/mnt"
+LUKS_TYPE="luks2"
+
+# Parse agent.conf (simple ini parser)
+parse_conf() {
+    local key="$1"
+    grep -E "^${key}\s*=" "$CONF" 2>/dev/null | sed 's/^[^=]*=\s*//' | tr -d '[:space:]'
+}
+
+BAO_ADDR=$(parse_conf "address" || echo "https://openbao.internal:8200")
+TRANSIT_KEY=$(parse_conf "transit_key" || echo "luks-master")
+KV_MOUNT=$(parse_conf "kv_mount" || echo "luks")
+
+# --- Helpers ---
+log() { echo "[luks-agent] $(date -Iseconds) $*" | systemd-cat -t luks-agent 2>/dev/null || echo "[luks-agent] $*"; }
+die() { log "FATAL: $*"; exit 1; }
+
+get_token() {
+    [[ -f "$TOKEN_FILE" ]] || die "No BAO token at $TOKEN_FILE"
+    cat "$TOKEN_FILE"
+}
+
+bao_api() {
+    local method="$1" path="$2" data="${3:-}"
+    local token
+    token=$(get_token)
+    local url="${BAO_ADDR}/v1/${path}"
+    local args=(-s -f -H "X-Vault-Token: ${token}" -H "Content-Type: application/json")
+    if [[ "$method" == "GET" ]]; then
+        curl "${args[@]}" "$url"
+    else
+        curl "${args[@]}" -X "$method" -d "$data" "$url"
+    fi
+}
+
+get_cinder_uuid() {
+    local dev="$1"
+    lsblk -ndo SERIAL "/dev/${dev}" 2>/dev/null | tr -d '[:space:]'
+}
+
+is_luks() {
+    local dev="$1"
+    cryptsetup isLuks "/dev/${dev}" 2>/dev/null
+}
+
+should_encrypt_boot() {
+    # Check volumes.json for boot-time decision
+    local uuid="$1"
+    if [[ -f "$VOLUMES_JSON" ]]; then
+        jq -r --arg u "$uuid" '.volumes[] | select(.uuid == $u) | .encrypt' "$VOLUMES_JSON" 2>/dev/null
+    fi
+}
+
+should_encrypt_hotattach() {
+    # Query IMDS for hot-attach decision
+    local uuid="$1"
+    local resp
+    resp=$(curl -sf "${IMDS_ADDR}/v1/volumes/${uuid}" 2>/dev/null) || return 1
+    echo "$resp" | jq -r '.encrypt' 2>/dev/null
+}
+
+# --- Path A: First-time encryption ---
+encrypt_new_volume() {
+    local dev="$1" uuid="$2"
+    local mapper_name="crypt-${uuid}"
+    local mount_point="${MOUNT_BASE}/${uuid}"
+
+    log "Path A: encrypting new volume ${dev} (${uuid})"
+
+    # 1. Generate random passphrase (memory only)
+    local PASS
+    PASS=$(head -c 32 /dev/urandom | base64 -w0)
+
+    # 2. Encrypt passphrase via Transit
+    local plaintext_b64
+    plaintext_b64=$(echo -n "$PASS" | base64 -w0)
+    local encrypt_resp
+    encrypt_resp=$(bao_api POST "transit/encrypt/${TRANSIT_KEY}" \
+        "{\"plaintext\": \"${plaintext_b64}\"}") || die "Transit encrypt failed for ${uuid}"
+    local ciphertext
+    ciphertext=$(echo "$encrypt_resp" | jq -r '.data.ciphertext')
+    [[ "$ciphertext" != "null" && -n "$ciphertext" ]] || die "No ciphertext returned for ${uuid}"
+
+    # 3. Store ciphertext in KV
+    bao_api POST "${KV_MOUNT}/data/volumes/${uuid}" \
+        "{\"data\": {\"ciphertext\": \"${ciphertext}\"}}" || die "KV write failed for ${uuid}"
+
+    # 4. LUKS format
+    echo -n "$PASS" | cryptsetup luksFormat --type "$LUKS_TYPE" \
+        --cipher aes-xts-plain64 --key-size 512 --hash sha256 \
+        --key-file - "/dev/${dev}" || die "luksFormat failed for ${dev}"
+
+    # 5. Open, format filesystem, mount
+    echo -n "$PASS" | cryptsetup open --type luks --key-file - \
+        "/dev/${dev}" "$mapper_name" || die "cryptsetup open failed for ${dev}"
+
+    mkfs.ext4 -q "/dev/mapper/${mapper_name}" || die "mkfs failed for ${mapper_name}"
+    mkdir -p "$mount_point"
+    mount "/dev/mapper/${mapper_name}" "$mount_point" || die "mount failed for ${mapper_name}"
+
+    # 6. Backup LUKS header
+    local header_backup
+    header_backup=$(mktemp)
+    cryptsetup luksHeaderBackup "/dev/${dev}" --header-backup-file "$header_backup"
+    local header_b64
+    header_b64=$(base64 -w0 < "$header_backup")
+    bao_api POST "${KV_MOUNT}/data/headers/${uuid}" \
+        "{\"data\": {\"header\": \"${header_b64}\"}}" || log "WARN: header backup failed for ${uuid}"
+    rm -f "$header_backup"
+
+    # 7. Update fstab
+    if ! grep -q "$mapper_name" /etc/fstab; then
+        echo "/dev/mapper/${mapper_name}  ${mount_point}  ext4  defaults,nofail  0  2" >> /etc/fstab
+    fi
+
+    # 8. Wipe passphrase
+    unset PASS plaintext_b64 ciphertext
+
+    log "Path A complete: ${mount_point} mounted (encrypted)"
+}
+
+# --- Path B: Unlock existing volume ---
+unlock_existing_volume() {
+    local dev="$1" uuid="$2"
+    local mapper_name="crypt-${uuid}"
+    local mount_point="${MOUNT_BASE}/${uuid}"
+
+    log "Path B: unlocking existing volume ${dev} (${uuid})"
+
+    # Already open?
+    if [[ -e "/dev/mapper/${mapper_name}" ]]; then
+        if mountpoint -q "$mount_point" 2>/dev/null; then
+            log "Already mounted at ${mount_point}, skipping"
+            return 0
+        fi
+        mount "/dev/mapper/${mapper_name}" "$mount_point" 2>/dev/null && {
+            log "Remounted ${mount_point}"
+            return 0
+        }
+    fi
+
+    # 1. Get ciphertext from KV
+    local kv_resp
+    kv_resp=$(bao_api GET "${KV_MOUNT}/data/volumes/${uuid}") || die "KV read failed for ${uuid}"
+    local ciphertext
+    ciphertext=$(echo "$kv_resp" | jq -r '.data.data.ciphertext')
+    [[ "$ciphertext" != "null" && -n "$ciphertext" ]] || die "No ciphertext in KV for ${uuid}"
+
+    # 2. Decrypt via Transit
+    local decrypt_resp
+    decrypt_resp=$(bao_api POST "transit/decrypt/${TRANSIT_KEY}" \
+        "{\"ciphertext\": \"${ciphertext}\"}") || die "Transit decrypt failed for ${uuid}"
+    local PASS
+    PASS=$(echo "$decrypt_resp" | jq -r '.data.plaintext' | base64 -d)
+    [[ -n "$PASS" ]] || die "Empty passphrase from Transit for ${uuid}"
+
+    # 3. Open and mount
+    echo -n "$PASS" | cryptsetup open --type luks --key-file - \
+        "/dev/${dev}" "$mapper_name" || die "cryptsetup open failed for ${dev}"
+
+    mkdir -p "$mount_point"
+    mount "/dev/mapper/${mapper_name}" "$mount_point" || die "mount failed for ${mapper_name}"
+
+    # 4. Wipe passphrase
+    unset PASS ciphertext
+
+    log "Path B complete: ${mount_point} mounted (unlocked)"
+}
+
+# --- Process a single device ---
+process_device() {
+    local dev="$1" mode="$2"
+
+    # Skip non-block devices and root disk
+    [[ -b "/dev/${dev}" ]] || return 0
+    [[ "$dev" != "vda"* ]] || return 0
+
+    local uuid
+    uuid=$(get_cinder_uuid "$dev")
+    [[ -n "$uuid" ]] || { log "No Cinder UUID for ${dev}, skipping"; return 0; }
+
+    # Check encryption flag
+    local encrypt_flag
+    if [[ "$mode" == "boot" ]]; then
+        encrypt_flag=$(should_encrypt_boot "$uuid")
+    else
+        encrypt_flag=$(should_encrypt_hotattach "$uuid")
+    fi
+
+    if [[ "$encrypt_flag" != "true" ]]; then
+        log "Volume ${uuid} (${dev}): encrypt=${encrypt_flag:-false}, skipping"
+        return 0
+    fi
+
+    # Branch: new or existing
+    if is_luks "$dev"; then
+        unlock_existing_volume "$dev" "$uuid"
+    else
+        encrypt_new_volume "$dev" "$uuid"
+    fi
+}
+
+# --- Main ---
+main() {
+    local mode="${1:-boot}"
+    log "Starting luks-agent mode=${mode}"
+
+    case "$mode" in
+        boot)
+            # Scan all virtio block devices except vda (root)
+            for dev in $(lsblk -ndo NAME | grep '^vd[b-z]'); do
+                process_device "$dev" "boot" || log "ERROR processing ${dev}"
+            done
+            ;;
+        attach)
+            local dev="${2:-}"
+            [[ -n "$dev" ]] || die "attach mode requires device name (e.g., vdb)"
+            process_device "$dev" "attach" || die "Failed processing ${dev}"
+            ;;
+        *)
+            die "Unknown mode: ${mode}. Use 'boot' or 'attach <device>'"
+            ;;
+    esac
+
+    log "luks-agent finished mode=${mode}"
+}
+
+main "$@"</code></pre>
+</div>
+
+<!-- Section 2: Systemd Units -->
+<div class="sl" id="systemd">Section 2: Systemd Units</div>
+
+<p>Four systemd units manage the luks-agent lifecycle: boot-time scanning, hot-attach detection, and token renewal.</p>
+
+<h3>luks-agent-boot.service</h3>
+<p>Runs at boot to scan all attached volumes and process them according to their encryption flags.</p>
+
+<div class="card">
+<h3>Installation path</h3>
+<p><code>/etc/systemd/system/luks-agent-boot.service</code></p>
+</div>
+
+<div class="card">
+<h3>Source</h3>
+<pre><code>[Unit]
+Description=LUKS Agent — boot-time volume encryption/unlock
+After=network-online.target cloud-init.target
+Wants=network-online.target
+ConditionPathExists=/run/bao-token
+ConditionPathExists=/etc/luks-agent/volumes.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/luks-agent.sh boot
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+</div>
+
+<h3>luks-agent@.service</h3>
+<p>Template unit instantiated by udev when a new block device appears. Handles hot-attach volumes.</p>
+
+<div class="card">
+<h3>Installation path</h3>
+<p><code>/etc/systemd/system/luks-agent@.service</code></p>
+</div>
+
+<div class="card">
+<h3>Source</h3>
+<pre><code>[Unit]
+Description=LUKS Agent — hot-attach encryption for %i
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/run/bao-token
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/luks-agent.sh attach %i
+StandardOutput=journal
+StandardError=journal</code></pre>
+</div>
+
+<h3>luks-token-renew.service</h3>
+<p>One-shot service called by the timer to renew the OpenBao token. Retrieves a new token from IMDS every 45 minutes.</p>
+
+<div class="card">
+<h3>Installation path</h3>
+<p><code>/etc/systemd/system/luks-token-renew.service</code></p>
+</div>
+
+<div class="card">
+<h3>Source</h3>
+<pre><code>[Unit]
+Description=LUKS Agent — OpenBao token renewal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c '\
+  RESP=$(curl -sf http://169.254.169.254/v1/renew -X POST) && \
+  TOKEN=$(echo "$RESP" | jq -r ".token") && \
+  echo -n "$TOKEN" > /run/bao-token && \
+  chmod 0600 /run/bao-token && \
+  echo "Token renewed successfully" || \
+  echo "Token renewal failed, will retry"'
+StandardOutput=journal
+StandardError=journal</code></pre>
+</div>
+
+<h3>luks-token-renew.timer</h3>
+<p>Timer that triggers token renewal service every 45 minutes. Runs on boot and persists across reboots.</p>
+
+<div class="card">
+<h3>Installation path</h3>
+<p><code>/etc/systemd/system/luks-token-renew.timer</code></p>
+</div>
+
+<div class="card">
+<h3>Source</h3>
+<pre><code>[Unit]
+Description=Renew OpenBao token every 45 minutes
+
+[Timer]
+OnBootSec=45min
+OnUnitActiveSec=45min
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target</code></pre>
+</div>
+
+<!-- Section 3: udev Rules -->
+<div class="sl" id="udev">Section 3: udev Rules</div>
+
+<p>udev rule that triggers the luks-agent template service whenever a new virtio block device is attached to the VM.</p>
+
+<div class="card">
+<h3>Installation path</h3>
+<p><code>/etc/udev/rules.d/99-luks-auto.rules</code></p>
+</div>
+
+<div class="card">
+<h3>Source</h3>
+<pre><code># /etc/udev/rules.d/99-luks-auto.rules
+# Trigger luks-agent on virtio block device hot-attach
+#
+# When a new virtio disk appears (vdb, vdc, etc.), start the
+# luks-agent template service for that device.
+
+SUBSYSTEM=="block", KERNEL=="vd[b-z]", ACTION=="add", \
+  TAG+="systemd", ENV{SYSTEMD_WANTS}="luks-agent@%k.service"</code></pre>
+</div>
+
+<!-- Section 4: Vendor Data Cloud-Config -->
+<div class="sl" id="vendor-data">Section 4: Vendor Data Cloud-Config</div>
+
+<p>Complete <code>vendor_data2.json</code> cloud-config generated by IMDS. Contains all files, packages, and configuration needed to deliver luks-agent to any VM with cloud-init, plus runcmd hooks to enable systemd services.</p>
+
+<div class="card">
+<h3>Generated by</h3>
+<p>IMDS at VM creation time in response to <code>POST /v1/token</code></p>
+</div>
+
+<div class="card">
+<h3>Source (full cloud-config)</h3>
+<pre><code>#cloud-config
+# Generated by IMDS at VM creation time
+# Delivers luks-agent to any VM with cloud-init
+
+packages:
+  - cryptsetup
+  - jq
+
+write_files:
+  - path: /usr/local/bin/luks-agent.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # /usr/local/bin/luks-agent.sh
+      # LUKS volume encryption agent — manages LUKS formatting and unlocking
+      # using OpenBao Transit (encrypt/decrypt) and KV (ciphertext storage).
+      #
+      # Usage:
+      #   luks-agent.sh boot          — scan all /dev/vd[b-z] at boot
+      #   luks-agent.sh attach vdX    — handle single hot-attached device
+      #
+      # Requires: cryptsetup, jq, curl, lsblk
+
+      set -euo pipefail
+
+      # --- Configuration ---
+      CONF="/etc/luks-agent/agent.conf"
+      TOKEN_FILE="/run/bao-token"
+      VOLUMES_JSON="/etc/luks-agent/volumes.json"
+      IMDS_ADDR="http://169.254.169.254"
+      MOUNT_BASE="/mnt"
+      LUKS_TYPE="luks2"
+
+      # Parse agent.conf (simple ini parser)
+      parse_conf() {
+          local key="$1"
+          grep -E "^${key}\s*=" "$CONF" 2>/dev/null | sed 's/^[^=]*=\s*//' | tr -d '[:space:]'
+      }
+
+      BAO_ADDR=$(parse_conf "address" || echo "https://openbao.internal:8200")
+      TRANSIT_KEY=$(parse_conf "transit_key" || echo "luks-master")
+      KV_MOUNT=$(parse_conf "kv_mount" || echo "luks")
+
+      # --- Helpers ---
+      log() { echo "[luks-agent] $(date -Iseconds) $*" | systemd-cat -t luks-agent 2>/dev/null || echo "[luks-agent] $*"; }
+      die() { log "FATAL: $*"; exit 1; }
+
+      get_token() {
+          [[ -f "$TOKEN_FILE" ]] || die "No BAO token at $TOKEN_FILE"
+          cat "$TOKEN_FILE"
+      }
+
+      bao_api() {
+          local method="$1" path="$2" data="${3:-}"
+          local token
+          token=$(get_token)
+          local url="${BAO_ADDR}/v1/${path}"
+          local args=(-s -f -H "X-Vault-Token: ${token}" -H "Content-Type: application/json")
+          if [[ "$method" == "GET" ]]; then
+              curl "${args[@]}" "$url"
+          else
+              curl "${args[@]}" -X "$method" -d "$data" "$url"
+          fi
+      }
+
+      get_cinder_uuid() {
+          local dev="$1"
+          lsblk -ndo SERIAL "/dev/${dev}" 2>/dev/null | tr -d '[:space:]'
+      }
+
+      is_luks() {
+          local dev="$1"
+          cryptsetup isLuks "/dev/${dev}" 2>/dev/null
+      }
+
+      should_encrypt_boot() {
+          # Check volumes.json for boot-time decision
+          local uuid="$1"
+          if [[ -f "$VOLUMES_JSON" ]]; then
+              jq -r --arg u "$uuid" '.volumes[] | select(.uuid == $u) | .encrypt' "$VOLUMES_JSON" 2>/dev/null
+          fi
+      }
+
+      should_encrypt_hotattach() {
+          # Query IMDS for hot-attach decision
+          local uuid="$1"
+          local resp
+          resp=$(curl -sf "${IMDS_ADDR}/v1/volumes/${uuid}" 2>/dev/null) || return 1
+          echo "$resp" | jq -r '.encrypt' 2>/dev/null
+      }
+
+      # --- Path A: First-time encryption ---
+      encrypt_new_volume() {
+          local dev="$1" uuid="$2"
+          local mapper_name="crypt-${uuid}"
+          local mount_point="${MOUNT_BASE}/${uuid}"
+
+          log "Path A: encrypting new volume ${dev} (${uuid})"
+
+          # 1. Generate random passphrase (memory only)
+          local PASS
+          PASS=$(head -c 32 /dev/urandom | base64 -w0)
+
+          # 2. Encrypt passphrase via Transit
+          local plaintext_b64
+          plaintext_b64=$(echo -n "$PASS" | base64 -w0)
+          local encrypt_resp
+          encrypt_resp=$(bao_api POST "transit/encrypt/${TRANSIT_KEY}" \
+              "{\"plaintext\": \"${plaintext_b64}\"}") || die "Transit encrypt failed for ${uuid}"
+          local ciphertext
+          ciphertext=$(echo "$encrypt_resp" | jq -r '.data.ciphertext')
+          [[ "$ciphertext" != "null" && -n "$ciphertext" ]] || die "No ciphertext returned for ${uuid}"
+
+          # 3. Store ciphertext in KV
+          bao_api POST "${KV_MOUNT}/data/volumes/${uuid}" \
+              "{\"data\": {\"ciphertext\": \"${ciphertext}\"}}" || die "KV write failed for ${uuid}"
+
+          # 4. LUKS format
+          echo -n "$PASS" | cryptsetup luksFormat --type "$LUKS_TYPE" \
+              --cipher aes-xts-plain64 --key-size 512 --hash sha256 \
+              --key-file - "/dev/${dev}" || die "luksFormat failed for ${dev}"
+
+          # 5. Open, format filesystem, mount
+          echo -n "$PASS" | cryptsetup open --type luks --key-file - \
+              "/dev/${dev}" "$mapper_name" || die "cryptsetup open failed for ${dev}"
+
+          mkfs.ext4 -q "/dev/mapper/${mapper_name}" || die "mkfs failed for ${mapper_name}"
+          mkdir -p "$mount_point"
+          mount "/dev/mapper/${mapper_name}" "$mount_point" || die "mount failed for ${mapper_name}"
+
+          # 6. Backup LUKS header
+          local header_backup
+          header_backup=$(mktemp)
+          cryptsetup luksHeaderBackup "/dev/${dev}" --header-backup-file "$header_backup"
+          local header_b64
+          header_b64=$(base64 -w0 < "$header_backup")
+          bao_api POST "${KV_MOUNT}/data/headers/${uuid}" \
+              "{\"data\": {\"header\": \"${header_b64}\"}}" || log "WARN: header backup failed for ${uuid}"
+          rm -f "$header_backup"
+
+          # 7. Update fstab
+          if ! grep -q "$mapper_name" /etc/fstab; then
+              echo "/dev/mapper/${mapper_name}  ${mount_point}  ext4  defaults,nofail  0  2" >> /etc/fstab
+          fi
+
+          # 8. Wipe passphrase
+          unset PASS plaintext_b64 ciphertext
+
+          log "Path A complete: ${mount_point} mounted (encrypted)"
+      }
+
+      # --- Path B: Unlock existing volume ---
+      unlock_existing_volume() {
+          local dev="$1" uuid="$2"
+          local mapper_name="crypt-${uuid}"
+          local mount_point="${MOUNT_BASE}/${uuid}"
+
+          log "Path B: unlocking existing volume ${dev} (${uuid})"
+
+          # Already open?
+          if [[ -e "/dev/mapper/${mapper_name}" ]]; then
+              if mountpoint -q "$mount_point" 2>/dev/null; then
+                  log "Already mounted at ${mount_point}, skipping"
+                  return 0
+              fi
+              mount "/dev/mapper/${mapper_name}" "$mount_point" 2>/dev/null && {
+                  log "Remounted ${mount_point}"
+                  return 0
+              }
+          fi
+
+          # 1. Get ciphertext from KV
+          local kv_resp
+          kv_resp=$(bao_api GET "${KV_MOUNT}/data/volumes/${uuid}") || die "KV read failed for ${uuid}"
+          local ciphertext
+          ciphertext=$(echo "$kv_resp" | jq -r '.data.data.ciphertext')
+          [[ "$ciphertext" != "null" && -n "$ciphertext" ]] || die "No ciphertext in KV for ${uuid}"
+
+          # 2. Decrypt via Transit
+          local decrypt_resp
+          decrypt_resp=$(bao_api POST "transit/decrypt/${TRANSIT_KEY}" \
+              "{\"ciphertext\": \"${ciphertext}\"}") || die "Transit decrypt failed for ${uuid}"
+          local PASS
+          PASS=$(echo "$decrypt_resp" | jq -r '.data.plaintext' | base64 -d)
+          [[ -n "$PASS" ]] || die "Empty passphrase from Transit for ${uuid}"
+
+          # 3. Open and mount
+          echo -n "$PASS" | cryptsetup open --type luks --key-file - \
+              "/dev/${dev}" "$mapper_name" || die "cryptsetup open failed for ${dev}"
+
+          mkdir -p "$mount_point"
+          mount "/dev/mapper/${mapper_name}" "$mount_point" || die "mount failed for ${mapper_name}"
+
+          # 4. Wipe passphrase
+          unset PASS ciphertext
+
+          log "Path B complete: ${mount_point} mounted (unlocked)"
+      }
+
+      # --- Process a single device ---
+      process_device() {
+          local dev="$1" mode="$2"
+
+          # Skip non-block devices and root disk
+          [[ -b "/dev/${dev}" ]] || return 0
+          [[ "$dev" != "vda"* ]] || return 0
+
+          local uuid
+          uuid=$(get_cinder_uuid "$dev")
+          [[ -n "$uuid" ]] || { log "No Cinder UUID for ${dev}, skipping"; return 0; }
+
+          # Check encryption flag
+          local encrypt_flag
+          if [[ "$mode" == "boot" ]]; then
+              encrypt_flag=$(should_encrypt_boot "$uuid")
+          else
+              encrypt_flag=$(should_encrypt_hotattach "$uuid")
+          fi
+
+          if [[ "$encrypt_flag" != "true" ]]; then
+              log "Volume ${uuid} (${dev}): encrypt=${encrypt_flag:-false}, skipping"
+              return 0
+          fi
+
+          # Branch: new or existing
+          if is_luks "$dev"; then
+              unlock_existing_volume "$dev" "$uuid"
+          else
+              encrypt_new_volume "$dev" "$uuid"
+          fi
+      }
+
+      # --- Main ---
+      main() {
+          local mode="${1:-boot}"
+          log "Starting luks-agent mode=${mode}"
+
+          case "$mode" in
+              boot)
+                  # Scan all virtio block devices except vda (root)
+                  for dev in $(lsblk -ndo NAME | grep '^vd[b-z]'); do
+                      process_device "$dev" "boot" || log "ERROR processing ${dev}"
+                  done
+                  ;;
+              attach)
+                  local dev="${2:-}"
+                  [[ -n "$dev" ]] || die "attach mode requires device name (e.g., vdb)"
+                  process_device "$dev" "attach" || die "Failed processing ${dev}"
+                  ;;
+              *)
+                  die "Unknown mode: ${mode}. Use 'boot' or 'attach <device>'"
+                  ;;
+          esac
+
+          log "luks-agent finished mode=${mode}"
+      }
+
+      main "$@"
+
+  - path: /etc/luks-agent/agent.conf
+    permissions: '0644'
+    content: |
+      [openbao]
+      address = https://openbao.internal:8200
+      transit_key = luks-master
+      kv_mount = luks
+      token_file = /run/bao-token
+
+      [luks]
+      luks_type = luks2
+      mount_base = /mnt
+      cipher = aes-xts-plain64
+      key_size = 512
+      hash = sha256
+
+      [imds]
+      address = http://169.254.169.254
+      renew_endpoint = /v1/renew
+      volumes_endpoint = /v1/volumes
+
+  - path: /etc/luks-agent/volumes.json
+    permissions: '0644'
+    content: |
+      {"volumes": [{"uuid": "VOLUME_UUID_HERE", "encrypt": true}]}
+
+  - path: /etc/systemd/system/luks-agent-boot.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=LUKS Agent — boot-time volume encryption/unlock
+      After=network-online.target cloud-init.target
+      Wants=network-online.target
+      ConditionPathExists=/run/bao-token
+      ConditionPathExists=/etc/luks-agent/volumes.json
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/luks-agent.sh boot
+      RemainAfterExit=yes
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/luks-agent@.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=LUKS Agent — hot-attach encryption for %i
+      After=network-online.target
+      ConditionPathExists=/run/bao-token
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/luks-agent.sh attach %i
+
+  - path: /etc/systemd/system/luks-token-renew.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=LUKS Agent — OpenBao token renewal
+      After=network-online.target
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash -c 'RESP=$(curl -sf http://169.254.169.254/v1/renew -X POST) && TOKEN=$(echo "$RESP" | jq -r ".token") && echo -n "$TOKEN" > /run/bao-token && chmod 0600 /run/bao-token'
+
+  - path: /etc/systemd/system/luks-token-renew.timer
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Renew OpenBao token every 45 minutes
+      [Timer]
+      OnBootSec=45min
+      OnUnitActiveSec=45min
+      AccuracySec=1min
+      Persistent=true
+      [Install]
+      WantedBy=timers.target
+
+  - path: /etc/udev/rules.d/99-luks-auto.rules
+    permissions: '0644'
+    content: |
+      SUBSYSTEM=="block", KERNEL=="vd[b-z]", ACTION=="add", TAG+="systemd", ENV{SYSTEMD_WANTS}="luks-agent@%k.service"
+
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable --now luks-agent-boot.service
+  - systemctl enable --now luks-token-renew.timer
+  - udevadm control --reload-rules</code></pre>
+</div>
+
+<!-- Section 5: Ansible Playbook -->
+<div class="sl" id="ansible">Section 5: Ansible Playbook — Golden Image Build</div>
+
+<p>Playbook to build a Glance image with luks-agent pre-installed. Boots a temporary build VM, installs dependencies, copies all files and systemd units, and snapshots into Glance.</p>
+
+<div class="card">
+<h3>File path</h3>
+<p><code>build-golden-image.yml</code> — run with <code>ansible-playbook build-golden-image.yml</code></p>
+</div>
+
+<div class="card">
+<h3>Source (complete playbook)</h3>
+<pre><code>---
+# build-golden-image.yml
+# Build a Glance image with luks-agent pre-installed
+#
+# Usage:
+#   ansible-playbook build-golden-image.yml
+
+- name: Build LUKS-enabled golden image
+  hosts: localhost
+  gather_facts: no
+  vars:
+    base_image: ubuntu-22.04-cloud
+    output_image: ubuntu-encrypted
+    flavor: m1.small
+    network: build-network
+    key_name: build-key
+    bao_address: https://openbao.internal:8200
+
+  tasks:
+    - name: Boot temporary build VM
+      openstack.cloud.server:
+        name: golden-image-builder
+        image: "{{ base_image }}"
+        flavor: "{{ flavor }}"
+        network: "{{ network }}"
+        key_name: "{{ key_name }}"
+        auto_ip: true
+        wait: true
+        timeout: 300
+      register: build_vm
+
+    - name: Wait for SSH
+      wait_for:
+        host: "{{ build_vm.server.public_v4 }}"
+        port: 22
+        delay: 10
+        timeout: 120
+
+    - name: Install packages
+      delegate_to: "{{ build_vm.server.public_v4 }}"
+      become: true
+      apt:
+        name:
+          - cryptsetup
+          - jq
+          - curl
+        state: present
+        update_cache: true
+
+    - name: Copy luks-agent.sh
+      delegate_to: "{{ build_vm.server.public_v4 }}"
+      become: true
+      copy:
+        src: files/luks-agent.sh
+        dest: /usr/local/bin/luks-agent.sh
+        mode: '0755'
+
+    - name: Create config directory
+      delegate_to: "{{ build_vm.server.public_v4 }}"
+      become: true
+      file:
+        path: /etc/luks-agent
+        state: directory
+        mode: '0755'
+
+    - name: Copy agent.conf
+      delegate_to: "{{ build_vm.server.public_v4 }}"
+      become: true
+      template:
+        src: templates/agent.conf.j2
+        dest: /etc/luks-agent/agent.conf
+        mode: '0644'
+
+    - name: Copy systemd units
+      delegate_to: "{{ build_vm.server.public_v4 }}"
+      become: true
+      copy:
+        src: "files/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        mode: '0644'
+      loop:
+        - luks-agent-boot.service
+        - luks-agent@.service
+        - luks-token-renew.service
+        - luks-token-renew.timer
+
+    - name: Copy udev rules
+      delegate_to: "{{ build_vm.server.public_v4 }}"
+      become: true
+      copy:
+        src: files/99-luks-auto.rules
+        dest: /etc/udev/rules.d/99-luks-auto.rules
+        mode: '0644'
+
+    - name: Enable services
+      delegate_to: "{{ build_vm.server.public_v4 }}"
+      become: true
+      systemd:
+        name: "{{ item }}"
+        enabled: true
+      loop:
+        - luks-agent-boot.service
+        - luks-token-renew.timer
+
+    - name: Clean up for snapshot
+      delegate_to: "{{ build_vm.server.public_v4 }}"
+      become: true
+      shell: |
+        cloud-init clean --logs
+        rm -rf /var/lib/cloud/instances/*
+        truncate -s 0 /var/log/*.log
+        history -c
+
+    - name: Stop VM for snapshot
+      openstack.cloud.server_action:
+        server: golden-image-builder
+        action: stop
+        wait: true
+
+    - name: Create snapshot
+      openstack.cloud.image:
+        name: "{{ output_image }}"
+        server: golden-image-builder
+        wait: true
+        timeout: 600
+      register: snapshot
+
+    - name: Delete build VM
+      openstack.cloud.server:
+        name: golden-image-builder
+        state: absent
+
+    - name: Done
+      debug:
+        msg: "Golden image '{{ output_image }}' created: {{ snapshot.image.id }}"</code></pre>
+</div>
+
+<div class="card">
+<h3>Required file structure</h3>
+<table>
+  <thead><tr><th>Path</th><th>Content</th></tr></thead>
+  <tbody>
+    <tr><td><code>files/luks-agent.sh</code></td><td>Copy from Section 1 above</td></tr>
+    <tr><td><code>files/luks-agent-boot.service</code></td><td>Copy from Section 2 above</td></tr>
+    <tr><td><code>files/luks-agent@.service</code></td><td>Copy from Section 2 above</td></tr>
+    <tr><td><code>files/luks-token-renew.service</code></td><td>Copy from Section 2 above</td></tr>
+    <tr><td><code>files/luks-token-renew.timer</code></td><td>Copy from Section 2 above</td></tr>
+    <tr><td><code>files/99-luks-auto.rules</code></td><td>Copy from Section 3 above</td></tr>
+    <tr><td><code>templates/agent.conf.j2</code></td><td>See next card</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="card">
+<h3>templates/agent.conf.j2</h3>
+<pre><code>[openbao]
+address = {{ bao_address }}
+transit_key = luks-master
+kv_mount = luks
+token_file = /run/bao-token
+
+[luks]
+luks_type = luks2
+mount_base = /mnt
+cipher = aes-xts-plain64
+key_size = 512
+hash = sha256
+
+[imds]
+address = http://169.254.169.254
+renew_endpoint = /v1/renew
+volumes_endpoint = /v1/volumes</code></pre>
+</div>
+
+<!-- Summary Table -->
+<div class="sl">Summary — All Files & Paths</div>
+
+<div class="card">
+<table>
+  <thead><tr><th>File</th><th>Path</th><th>Permissions</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td>luks-agent.sh</td><td>/usr/local/bin/luks-agent.sh</td><td>0755</td><td>Main encryption/unlock script</td></tr>
+    <tr><td>agent.conf</td><td>/etc/luks-agent/agent.conf</td><td>0644</td><td>OpenBao address, Transit key, KV mount</td></tr>
+    <tr><td>volumes.json</td><td>/etc/luks-agent/volumes.json</td><td>0644</td><td>Boot-time encryption flags per volume</td></tr>
+    <tr><td>luks-agent-boot.service</td><td>/etc/systemd/system/luks-agent-boot.service</td><td>0644</td><td>Boot-time service (oneshot)</td></tr>
+    <tr><td>luks-agent@.service</td><td>/etc/systemd/system/luks-agent@.service</td><td>0644</td><td>Hot-attach template unit</td></tr>
+    <tr><td>luks-token-renew.service</td><td>/etc/systemd/system/luks-token-renew.service</td><td>0644</td><td>Token renewal (oneshot)</td></tr>
+    <tr><td>luks-token-renew.timer</td><td>/etc/systemd/system/luks-token-renew.timer</td><td>0644</td><td>Token renewal timer (every 45 min)</td></tr>
+    <tr><td>99-luks-auto.rules</td><td>/etc/udev/rules.d/99-luks-auto.rules</td><td>0644</td><td>udev rule for hot-attach trigger</td></tr>
+    <tr><td>bao-token</td><td>/run/bao-token</td><td>0600</td><td>Runtime: cached OpenBao token (tmpfs)</td></tr>
+  </tbody>
+</table>
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LUKS + OpenBao Volume Encryption — Flows</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--bg:#f8f8f6;--fg:#2c2c2a;--card:#fff;--border:#e5e5e0;--muted:#888;--accent:#534AB7;--accent-bg:#EEEDFE;--accent-fg:#26215C;--green-bg:#E1F5EE;--green-fg:#04342C;--green-border:#0F6E56;--nav-bg:#fff;--code-bg:#f4f3ef;--hover:#f0efeb}
+  @media(prefers-color-scheme:dark){
+    :root{--bg:#1a1a1a;--fg:#e0e0e0;--card:#242424;--border:#3a3a3a;--muted:#999;--accent:#AFA9EC;--accent-bg:#3C3489;--accent-fg:#CECBF6;--green-bg:#085041;--green-fg:#9FE1CB;--green-border:#5DCAA5;--nav-bg:#242424;--code-bg:#2a2a2a;--hover:#333}
+  }
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--fg);line-height:1.6}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  /* Nav */
+  nav{background:var(--nav-bg);border-bottom:1px solid var(--border);padding:0 20px;position:sticky;top:0;z-index:100}
+  nav .inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:0;height:52px;overflow-x:auto}
+  nav .logo{font-weight:700;font-size:15px;margin-right:28px;white-space:nowrap;color:var(--fg)}
+  nav a.nav-link{font-size:13px;font-weight:500;color:var(--muted);padding:14px 14px;white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
+  nav a.nav-link:hover{color:var(--fg);text-decoration:none}
+  nav a.nav-link.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+  /* Layout */
+  .container{max-width:1100px;margin:0 auto;padding:40px 20px 80px}
+  h1{font-size:28px;font-weight:700;margin-bottom:6px}
+  .subtitle{font-size:14px;color:var(--muted);margin-bottom:36px}
+  h2{font-size:20px;font-weight:600;margin:36px 0 12px}
+  h3{font-size:16px;font-weight:600;margin:24px 0 8px}
+  p{margin-bottom:14px}
+
+  /* Cards */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:28px;margin-bottom:24px}
+  .card h3{margin-top:0}
+
+  /* Tables */
+  table{width:100%;border-collapse:collapse;margin:16px 0 24px;font-size:14px}
+  th{text-align:left;font-weight:600;padding:10px 14px;border-bottom:2px solid var(--border);font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+
+  /* Code */
+  code{font-family:'SF Mono',Menlo,monospace;font-size:13px;background:var(--code-bg);padding:2px 6px;border-radius:4px}
+  pre{background:var(--code-bg);border-radius:8px;padding:18px 20px;overflow-x:auto;margin:12px 0 20px;font-size:13px;line-height:1.5}
+  pre code{background:none;padding:0}
+
+  /* Section labels */
+  .sl{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:44px 0 14px;padding-top:20px;border-top:1px solid var(--border)}
+  .sl:first-of-type{border-top:none;margin-top:0;padding-top:0}
+
+  /* Hero */
+  .hero{background:var(--accent-bg);border:1px solid var(--accent);border-radius:12px;padding:28px;margin-bottom:32px;color:var(--accent-fg)}
+  .hero h2{margin:0 0 8px;color:var(--accent-fg)}
+  .hero p{color:var(--accent-fg);opacity:.85;margin-bottom:0}
+
+  /* Badge */
+  .badge{display:inline-block;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px}
+  .badge-green{background:var(--green-bg);color:var(--green-fg);border:1px solid var(--green-border)}
+  .badge-accent{background:var(--accent-bg);color:var(--accent-fg);border:1px solid var(--accent)}
+
+  /* Ordered list styling */
+  ol{padding-left:20px;font-size:14px;line-height:1.8}
+  ol li{margin-bottom:10px}
+  ul{padding-left:20px;font-size:14px;line-height:1.8}
+  ul li{margin-bottom:8px}
+</style>
+</head>
+<body>
+<nav>
+  <div class="inner">
+    <span class="logo">LUKS + OpenBao</span>
+    <a href="index.html" class="nav-link">Overview</a>
+    <a href="diagrams.html" class="nav-link">Diagrams</a>
+    <a href="configs.html" class="nav-link">Configs</a>
+    <a href="scripts.html" class="nav-link">Scripts</a>
+    <a href="flows.html" class="nav-link active">Flows</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<h1>LUKS + OpenBao — Operational Flows</h1>
+<p class="subtitle">Detailed step-by-step flows for encryption, decryption, hot-attach, renewal, migration, and recovery</p>
+
+<!-- Boot Flow -->
+<div id="boot" class="card">
+  <h3>Section 1: Boot flow (every boot)</h3>
+  <p>When a VM boots (first time or reboot), the <code>luks-agent-boot.service</code> scans all attached block devices and determines whether each volume needs encryption or unlocking. Two separate services provide data at boot: IMDS (token only) and Metadata Service (vendor data + volume flags).</p>
+  <ol>
+    <li><strong>Nova vendor data:</strong> Nova serves <code>vendor_data2.json</code> via <code>169.254.169.254</code> containing a fetcher script + <code>agent.conf</code> (OpenBao address, custom metadata server address). Kept small — no actual scripts, no secrets, no volume flags.</li>
+    <li><strong>First boot only:</strong> VM boots → cloud-init fetches <code>vendor_data2.json</code> → runs the fetcher script, which downloads <code>luks-agent.sh</code>, systemd units, and udev rules → installs and enables them as systemd services</li>
+    <li><strong>Subsequent boots:</strong> Scripts already installed as systemd services. Vendor data does NOT need to be re-fetched. <code>luks-agent-boot.service</code> starts directly via systemd.</li>
+    <li><strong>IMDS — token minting:</strong> luks-agent calls IMDS <code>POST /v1/token</code>. IMDS verifies VM by source IP, signs JWT (60-second TTL) → calls OpenBao <code>POST /auth/jwt/login</code> → receives BAO token with 1-hour TTL. Writes to <code>/run/bao-token</code>.</li>
+    <li><code>luks-agent-boot.service</code> scans all block devices using <code>lsblk</code></li>
+    <li>For each device (e.g., <code>/dev/vdX</code>): get Cinder UUID via <code>lsblk -ndo SERIAL /dev/vdX</code></li>
+    <li>Query custom metadata server: <code>GET /v1/volumes/{uuid}</code> → returns <code>{encrypt: true/false}</code></li>
+    <li>If <code>encrypt=false</code> → skip this device</li>
+    <li>If <code>encrypt=true</code> and no LUKS header found → Path A (first-time encryption)</li>
+    <li>If <code>encrypt=true</code> and LUKS header present → Path B (unlock existing)</li>
+  </ol>
+</div>
+
+<!-- Path A -->
+<div id="path-a" class="card">
+  <h3>Section 2: Path A — First-time encryption</h3>
+  <p>When a volume is attached to a VM for the first time, the agent generates a random passphrase, encrypts it with OpenBao Transit, stores the ciphertext in OpenBao KV, then formats the volume with LUKS and creates a filesystem.</p>
+  <ol>
+    <li>Generate 32-byte random passphrase from <code>/dev/urandom</code> and keep in memory only (never written to disk)</li>
+    <li>Call OpenBao <code>POST /transit/encrypt/luks-master</code> with plaintext passphrase → get ciphertext back</li>
+    <li>Call OpenBao <code>PUT /luks/data/volumes/{cinder-uuid}</code> → store ciphertext in KV</li>
+    <li>Call <code>cryptsetup luksFormat --type luks2 --key-file - /dev/vdX</code> → feed passphrase from stdin, format volume with LUKS2 header</li>
+    <li>Call <code>cryptsetup open --key-file - /dev/vdX crypt-{uuid}</code> → unlock device, create <code>/dev/mapper/crypt-{uuid}</code></li>
+    <li>Create filesystem: <code>mkfs.ext4 /dev/mapper/crypt-{uuid}</code></li>
+    <li>Mount the encrypted volume: <code>mount /dev/mapper/crypt-{uuid} /mnt/{uuid}</code></li>
+    <li>Create LUKS header backup: <code>cryptsetup luksHeaderBackup</code> → store backup (encrypted) in OpenBao <code>PUT /luks/data/headers/{cinder-uuid}</code></li>
+    <li>Wipe passphrase from memory (overwrite with zeros)</li>
+    <li>Add entry to <code>/etc/fstab</code> for automatic mounting: <code>/dev/mapper/crypt-{uuid} /mnt/{uuid} ext4 defaults 0 0</code></li>
+  </ol>
+  <p style="font-size:13px;color:var(--muted);margin-top:16px"><strong>OpenBao API calls:</strong> 3 calls total (Transit encrypt + KV write ciphertext + KV write header backup)</p>
+</div>
+
+<!-- Path B -->
+<div id="path-b" class="card">
+  <h3>Section 3: Path B — Unlock existing volume</h3>
+  <p>When a volume with an existing LUKS header is attached (or VM reboots), the agent retrieves the encrypted passphrase from OpenBao, decrypts it, and unlocks the volume.</p>
+  <ol>
+    <li>Call OpenBao <code>GET /luks/data/volumes/{cinder-uuid}</code> → retrieve ciphertext</li>
+    <li>Call OpenBao <code>POST /transit/decrypt/luks-master</code> with ciphertext → get plaintext passphrase back</li>
+    <li>Call <code>cryptsetup open --key-file - /dev/vdX crypt-{uuid}</code> → unlock with passphrase from stdin</li>
+    <li>Mount the volume: <code>mount /dev/mapper/crypt-{uuid} /mnt/{uuid}</code> (uses existing entry in <code>/etc/fstab</code> from Path A)</li>
+    <li>Wipe passphrase from memory</li>
+  </ol>
+  <p style="font-size:13px;color:var(--muted);margin-top:16px"><strong>OpenBao API calls:</strong> 2 calls total (KV read + Transit decrypt)</p>
+</div>
+
+<!-- Hot-Attach Flow -->
+<div id="hot-attach" class="card">
+  <h3>Section 4: Hot-attach flow</h3>
+  <p>When a volume is attached to a running VM (without reboot), udev detects the new block device and triggers the luks-agent to handle it immediately.</p>
+  <ol>
+    <li>udev detects new block device (e.g., <code>/dev/vdX</code>) → fires rule matching <code>KERNEL=="vd*"</code> → triggers <code>luks-agent@vdX.service</code></li>
+    <li>Agent gets Cinder UUID via <code>lsblk -ndo SERIAL /dev/vdX</code></li>
+    <li>Agent calls custom metadata server <code>GET /v1/volumes/{uuid}</code> → returns encryption flag (same query as boot flow)</li>
+    <li>If <code>encrypt=false</code> → skip</li>
+    <li>If <code>encrypt=true</code> → check if LUKS header exists on device via <code>cryptsetup isLuks /dev/vdX</code></li>
+    <li>If no LUKS header → Path A (first-time encryption)</li>
+    <li>If LUKS header present → Path B (unlock existing)</li>
+  </ol>
+  <p style="font-size:13px;color:var(--muted);margin-top:16px"><strong>Note:</strong> No reboot needed. Volume is encrypted/unlocked and mounted while the VM is still running.</p>
+</div>
+
+<!-- Token Renewal -->
+<div id="token-renewal" class="card">
+  <h3>Section 5: Token renewal</h3>
+  <p>OpenBao tokens have a 1-hour TTL. To avoid expiration during long-running VMs, a systemd timer renews the token every 45 minutes, providing a 15-minute buffer before expiration.</p>
+  <ol>
+    <li>systemd timer fires every 45 minutes (e.g., at 00:00, 00:45, 01:30, ...)</li>
+    <li>Timer triggers <code>luks-token-renew.service</code></li>
+    <li><code>luks-agent.sh</code> calls IMDS <code>POST /v1/renew</code></li>
+    <li>IMDS verifies the request comes from a known VM (source IP + instance UUID in request body)</li>
+    <li>IMDS creates a new 60-second JWT, calls OpenBao <code>POST /auth/jwt/login</code>, receives a fresh 1-hour BAO token</li>
+    <li>IMDS returns the new token</li>
+    <li>Agent writes new token to <code>/run/bao-token</code> (tmpfs, lost on power off)</li>
+    <li>All future OpenBao calls use the new token</li>
+    <li>If renewal fails → agent logs error and retries with exponential backoff (e.g., 10s, 20s, 40s)</li>
+  </ol>
+  <p style="font-size:13px;color:var(--muted);margin-top:16px"><strong>TTL strategy:</strong> Token TTL is 1 hour, renewal fires every 45 minutes. This provides a 15-minute safety buffer. If the IMDS or OpenBao is temporarily unavailable, the token doesn't immediately expire.</p>
+  <p style="font-size:13px;color:var(--muted)"><strong>Service note:</strong> Token renewal calls IMDS only (token minting). It does NOT call the custom metadata server — volume checks happen separately per-volume when the agent runs.</p>
+</div>
+
+<!-- Volume Migration -->
+<div id="migration" class="card">
+  <h3>Section 6: Volume migration</h3>
+  <p>A volume can be detached from one VM and attached to another. Because the passphrase is keyed by volume UUID (not VM identity), any authorized VM can decrypt it.</p>
+  <ol>
+    <li><strong>VM-A (source):</strong> <code>umount /mnt/{uuid}</code> → unmount the volume</li>
+    <li><strong>VM-A (source):</strong> <code>cryptsetup close crypt-{uuid}</code> → lock the LUKS device</li>
+    <li><strong>OpenStack admin:</strong> <code>openstack server remove volume vm-a volume-uuid</code> → detach from VM-A</li>
+    <li><strong>OpenStack admin:</strong> <code>openstack server add volume vm-b volume-uuid</code> → attach to VM-B</li>
+    <li><strong>VM-B (destination):</strong> udev detects the new device → runs hot-attach flow</li>
+    <li><strong>VM-B (destination):</strong> calls <code>cryptsetup isLuks</code> → detects LUKS header (same UUID)</li>
+    <li><strong>VM-B (destination):</strong> Path B flow: calls OpenBao <code>GET /luks/data/volumes/{uuid}</code> (same UUID) → gets ciphertext</li>
+    <li><strong>VM-B (destination):</strong> calls OpenBao <code>POST /transit/decrypt/luks-master</code> → gets passphrase</li>
+    <li><strong>VM-B (destination):</strong> <code>cryptsetup open</code> + <code>mount</code> → volume is now accessible on VM-B</li>
+  </ol>
+  <p style="margin-top:16px"><strong>Why this works:</strong> The passphrase is stored in OpenBao KV by volume UUID, not by VM identity. As long as VM-B's OpenBao policy allows reading from <code>/luks/data/volumes/*</code>, it can decrypt any volume it has access to. The LUKS header itself acts as the "proof" that this volume uses LUKS encryption.</p>
+</div>
+
+<!-- Disaster Recovery -->
+<div id="disaster-recovery" class="card">
+  <h3>Section 7: Disaster recovery</h3>
+  <p>When things go wrong, here's how to recover:</p>
+
+  <h4 style="font-size:15px;font-weight:600;margin:20px 0 10px">LUKS header corruption</h4>
+  <ol>
+    <li>The LUKS header backup was stored in OpenBao during initial encryption: <code>GET /luks/data/headers/{uuid}</code></li>
+    <li>Retrieve the backup from OpenBao (it's plaintext — Transit encryption is optional for backups)</li>
+    <li>Restore header: <code>cryptsetup luksHeaderRestore --header-backup-file /path/to/backup /dev/vdX</code></li>
+    <li>Volume is now recoverable</li>
+  </ol>
+
+  <h4 style="font-size:15px;font-weight:600;margin:20px 0 10px">OpenBao unavailable</h4>
+  <ol>
+    <li>Volumes stay locked until OpenBao returns</li>
+    <li>No data loss — the passphrase is safely stored in OpenBao KV, waiting for OpenBao to come back online</li>
+    <li>Once OpenBao is reachable, token renewal succeeds and volumes can be unlocked normally</li>
+  </ol>
+
+  <h4 style="font-size:15px;font-weight:600;margin:20px 0 10px">Lost BAO token</h4>
+  <ol>
+    <li>If <code>/run/bao-token</code> is deleted or corrupted, the VM can no longer make OpenBao API calls</li>
+    <li>Wait for the next token renewal (every 45 minutes)</li>
+    <li>Or trigger renewal manually: <code>systemctl start luks-token-renew.service</code></li>
+    <li>IMDS issues a new token, and the VM is back online</li>
+  </ol>
+
+  <h4 style="font-size:15px;font-weight:600;margin:20px 0 10px">Volume UUID lookup failure</h4>
+  <ol>
+    <li>If <code>lsblk -ndo SERIAL</code> fails or returns empty, the agent can't identify the volume</li>
+    <li>Manual recovery: use the block device name and manually check for LUKS header: <code>cryptsetup luksDump /dev/vdX</code></li>
+    <li>Extract UUID from the LUKS header or from Cinder (e.g., <code>openstack volume show volume-uuid</code>)</li>
+    <li>Manually retrieve the passphrase: <code>curl -H "X-Vault-Token: $BAO_TOKEN" https://bao.internal/v1/luks/data/volumes/{uuid}</code></li>
+    <li>Decrypt the ciphertext: <code>curl -X POST -H "X-Vault-Token: $BAO_TOKEN" -d @payload.json https://bao.internal/v1/transit/decrypt/luks-master</code></li>
+    <li>Unlock and mount manually</li>
+  </ol>
+</div>
+
+<!-- Error Handling -->
+<div id="error-handling" class="card">
+  <h3>Section 8: Error handling in luks-agent</h3>
+  <p>The agent implements defensive error handling to prevent partial encryption or orphaned volumes:</p>
+
+  <h4 style="font-size:15px;font-weight:600;margin:20px 0 10px">BAO token expired</h4>
+  <ul>
+    <li>Agent checks token expiration time (decoded from JWT)</li>
+    <li>If token is expired: log error to systemd journal, do NOT attempt any OpenBao API calls</li>
+    <li>Agent waits for the next scheduled token renewal (systemd timer fires every 45 min)</li>
+    <li>Once renewed, retries the pending encryption/decryption operation</li>
+  </ul>
+
+  <h4 style="font-size:15px;font-weight:600;margin:20px 0 10px">Transit API unreachable</h4>
+  <ul>
+    <li>Agent attempts to call <code>POST /transit/encrypt</code> or <code>POST /transit/decrypt</code></li>
+    <li>If connection times out or returns 5xx: log error, retry with exponential backoff (base 5 seconds, capped at 60 seconds)</li>
+    <li>Max retries: 5 attempts over ~5 minutes total</li>
+    <li>If all retries fail: log device UUID and error details to journal, stop processing (prevents volume from being left half-encrypted)</li>
+  </ul>
+
+  <h4 style="font-size:15px;font-weight:600;margin:20px 0 10px">KV write fails (ciphertext storage)</h4>
+  <ul>
+    <li>During Path A: agent encrypts passphrase, then tries to store ciphertext in KV via <code>PUT /luks/data/volumes/{uuid}</code></li>
+    <li>If KV write fails: agent logs error and does NOT proceed to <code>cryptsetup luksFormat</code></li>
+    <li>Why: if we format the volume but fail to store the passphrase, the volume becomes unrecoverable (orphaned)</li>
+    <li>Agent stops and waits for manual intervention or retry</li>
+  </ul>
+
+  <h4 style="font-size:15px;font-weight:600;margin:20px 0 10px">cryptsetup command fails</h4>
+  <ul>
+    <li>If <code>cryptsetup luksFormat</code> fails (bad device, I/O error, insufficient space): agent logs device path and UUID to journal</li>
+    <li>Agent does NOT retry automatically — requires manual investigation</li>
+    <li>Error message includes: command output, exit code, device name, volume UUID for recovery</li>
+  </ul>
+
+  <h4 style="font-size:15px;font-weight:600;margin:20px 0 10px">Volume already mounted</h4>
+  <ul>
+    <li>Agent checks if <code>/mnt/{uuid}</code> already exists and is mounted (via <code>mountpoint</code> command)</li>
+    <li>If already mounted: agent logs "volume already mounted, skipping" and exits cleanly (idempotent)</li>
+    <li>This handles the case where the service is triggered twice at boot or during hot-attach</li>
+  </ul>
+
+  <h4 style="font-size:15px;font-weight:600;margin:20px 0 10px">IMDS temporarily unavailable (token renewal)</h4>
+  <ul>
+    <li>During token renewal, if IMDS is unreachable: agent retries with backoff</li>
+    <li>Token remains cached in <code>/run/bao-token</code> until it expires (1-hour TTL)</li>
+    <li>Volumes stay mounted and accessible while renewal is being retried</li>
+    <li>Once IMDS returns, next renewal succeeds immediately</li>
+    <li>Note: IMDS is only used for token minting/renewal. Volume flags come from the custom metadata server (queried per-volume at boot and hot-attach)</li>
+  </ul>
+
+  <h4 style="font-size:15px;font-weight:600;margin:20px 0 10px">Journal logging</h4>
+  <ul>
+    <li>All operations logged to systemd journal via <code>logger</code> or direct syslog</li>
+    <li>View logs: <code>journalctl -u luks-agent-boot.service</code> or <code>journalctl -u luks-agent@vdX.service</code></li>
+    <li>Logs include: timestamp, severity (INFO/WARN/ERROR), operation (encrypt/decrypt/mount), device, UUID, result</li>
+    <li>For support: SSH into VM and pull journal for troubleshooting</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>

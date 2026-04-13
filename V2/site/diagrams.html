@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LUKS + OpenBao Volume Encryption — Diagrams</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--bg:#f8f8f6;--fg:#2c2c2a;--card:#fff;--border:#e5e5e0;--muted:#888;--accent:#534AB7;--accent-bg:#EEEDFE;--accent-fg:#26215C;--green-bg:#E1F5EE;--green-fg:#04342C;--green-border:#0F6E56;--nav-bg:#fff;--code-bg:#f4f3ef;--hover:#f0efeb}
+  @media(prefers-color-scheme:dark){
+    :root{--bg:#1a1a1a;--fg:#e0e0e0;--card:#242424;--border:#3a3a3a;--muted:#999;--accent:#AFA9EC;--accent-bg:#3C3489;--accent-fg:#CECBF6;--green-bg:#085041;--green-fg:#9FE1CB;--green-border:#5DCAA5;--nav-bg:#242424;--code-bg:#2a2a2a;--hover:#333}
+  }
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--fg);line-height:1.6}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  /* Nav */
+  nav{background:var(--nav-bg);border-bottom:1px solid var(--border);padding:0 20px;position:sticky;top:0;z-index:100}
+  nav .inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:0;height:52px;overflow-x:auto}
+  nav .logo{font-weight:700;font-size:15px;margin-right:28px;white-space:nowrap;color:var(--fg)}
+  nav a.nav-link{font-size:13px;font-weight:500;color:var(--muted);padding:14px 14px;white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
+  nav a.nav-link:hover{color:var(--fg);text-decoration:none}
+  nav a.nav-link.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+  /* Layout */
+  .container{max-width:1100px;margin:0 auto;padding:40px 20px 80px}
+  h1{font-size:28px;font-weight:700;margin-bottom:6px}
+  .subtitle{font-size:14px;color:var(--muted);margin-bottom:36px}
+  h2{font-size:20px;font-weight:600;margin:36px 0 12px}
+  h3{font-size:16px;font-weight:600;margin:24px 0 8px}
+  p{margin-bottom:14px}
+
+  /* Cards */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:28px;margin-bottom:24px}
+  .card h3{margin-top:0}
+
+  /* Tables */
+  table{width:100%;border-collapse:collapse;margin:16px 0 24px;font-size:14px}
+  th{text-align:left;font-weight:600;padding:10px 14px;border-bottom:2px solid var(--border);font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+
+  /* Code */
+  code{font-family:'SF Mono',Menlo,monospace;font-size:13px;background:var(--code-bg);padding:2px 6px;border-radius:4px}
+  pre{background:var(--code-bg);border-radius:8px;padding:18px 20px;overflow-x:auto;margin:12px 0 20px;font-size:13px;line-height:1.5}
+  pre code{background:none;padding:0}
+
+  /* Section labels */
+  .sl{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:44px 0 14px;padding-top:20px;border-top:1px solid var(--border)}
+  .sl:first-of-type{border-top:none;margin-top:0;padding-top:0}
+
+  /* Hero */
+  .hero{background:var(--accent-bg);border:1px solid var(--accent);border-radius:12px;padding:28px;margin-bottom:32px;color:var(--accent-fg)}
+  .hero h2{margin:0 0 8px;color:var(--accent-fg)}
+  .hero p{color:var(--accent-fg);opacity:.85;margin-bottom:0}
+
+  /* Badge */
+  .badge{display:inline-block;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px}
+  .badge-green{background:var(--green-bg);color:var(--green-fg);border:1px solid var(--green-border)}
+  .badge-accent{background:var(--accent-bg);color:var(--accent-fg);border:1px solid var(--accent)}
+
+  /* Diagram cards */
+  .diagram-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:28px;margin-bottom:24px}
+  .diagram-card h2{margin-top:0;margin-bottom:8px;font-size:18px}
+  .diagram-card .desc{font-size:13px;color:var(--muted);margin-bottom:20px}
+  .diagram-card .mermaid{display:flex;justify-content:center;background:var(--hover);border-radius:8px;padding:20px;overflow-x:auto}
+</style>
+</head>
+<body>
+<nav>
+  <div class="inner">
+    <span class="logo">LUKS + OpenBao</span>
+    <a href="index.html" class="nav-link">Overview</a>
+    <a href="diagrams.html" class="nav-link active">Diagrams</a>
+    <a href="configs.html" class="nav-link">Configs</a>
+    <a href="scripts.html" class="nav-link">Scripts</a>
+    <a href="flows.html" class="nav-link">Flows</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<h1>Architecture Diagrams</h1>
+<p class="subtitle">Visual reference for the LUKS + OpenBao volume encryption system</p>
+
+<!-- Admin setup -->
+<span class="sl">Admin setup</span>
+
+<div class="diagram-card">
+  <h2>One-time admin setup</h2>
+  <p class="desc">Initial infrastructure configuration: Cinder volume type, OpenBao engines & policies, IMDS endpoints, systemd timers</p>
+  <div class="mermaid">
+flowchart TD
+    S1["1. Create Cinder volume type\nopenstack volume type create secure-volume\nopenstack volume type set secure-volume\n--property openbao_encrypt=true"] --> S2
+    S2["2. Configure OpenBao\nEnable Transit engine\nCreate encryption key: luks-master\nEnable KV store at luks/\nAdd LUKS read/write + Transit encrypt/decrypt\nto existing JWT auth role policies"] --> S3
+    S3["3. IMDS — token minting only\nExisting /v1/token: sign JWT, get BAO token\nAdd /v1/renew: VM calls for fresh token\nVerify VM by source IP\nNo Cinder queries, no vendor data"] --> S4
+    S4["4. Custom Metadata Server — volume encryption flags\nGET /v1/volumes/UUID → encrypt true/false\nAuth to Keystone, query Cinder for volume type\nUsed by luks-agent at boot + hot-attach"] --> S5
+    S5["5. Nova vendor data (kept small — size limits)\nFetcher script (downloads + installs luks-agent)\nagent.conf (OpenBao addr, metadata server addr)\nNO secrets, NO volumes.json\nBAO token comes from IMDS at runtime"] --> DONE["Done. Infrastructure ready."]
+  </div>
+</div>
+
+<!-- Boot flow -->
+<span class="sl">Boot flow</span>
+
+<div class="diagram-card">
+  <h2>VM creation + vendor data injection</h2>
+  <p class="desc">Customer creates encrypted volume and VM; Nova vendor data delivers fetcher, luks-agent queries custom metadata server per-volume</p>
+  <div class="mermaid">
+sequenceDiagram
+    participant Cust as Customer
+    participant Nova as Nova API
+    participant Cinder as Cinder API
+    participant IMDS as IMDS (token only)
+    participant BAO as OpenBao
+    participant VM as Guest VM
+    participant CI as cloud-init
+    participant MetaSrv as Custom Metadata Server
+    rect rgb(230, 241, 251)
+    Note over Cust,Cinder: Customer creates encrypted volume
+    Cust->>Cinder: openstack volume create --type secure-volume --size 100
+    end
+    rect rgb(225, 245, 238)
+    Note over Cust,CI: VM creation — Nova serves vendor data
+    Cust->>Nova: openstack server create + add volume
+    Nova->>VM: Boot VM with vendor_data2.json<br/>(fetcher script + agent.conf, NO secrets)
+    VM->>CI: cloud-init starts
+    CI->>CI: Fetch vendor_data2.json from 169.254.169.254
+    CI->>VM: Write agent.conf
+    CI->>VM: Run fetcher script
+    VM->>VM: Fetcher downloads + installs<br/>luks-agent.sh, systemd units, udev rules
+    CI->>VM: Enable + start luks-agent-boot.service
+    Note over VM: Subsequent boots: scripts already installed,<br/>systemd starts luks-agent directly,<br/>vendor data NOT re-fetched
+    end
+    rect rgb(238, 237, 254)
+    Note over VM,BAO: luks-agent starts — get token + check volumes
+    VM->>IMDS: POST /v1/token (get BAO token)
+    IMDS->>BAO: JWT login
+    BAO-->>IMDS: Token (1h TTL)
+    IMDS-->>VM: BAO token
+    VM->>VM: Write /run/bao-token (0600)
+    VM->>VM: Scan /dev/vd[b-z], get UUID via lsblk SERIAL
+    loop For each volume
+        VM->>MetaSrv: GET /v1/volumes/{uuid} — encrypt?
+        MetaSrv-->>VM: {encrypt: true/false}
+    end
+    Note over VM: encrypt=true + no LUKS header → Path A<br/>encrypt=true + LUKS header → Path B<br/>encrypt=false → skip
+    end
+  </div>
+</div>
+
+<div class="diagram-card">
+  <h2>luks-agent decision flow</h2>
+  <p class="desc">Agent scans volumes, checks encryption flag, routes to Path A (new volume) or Path B (existing encrypted volume)</p>
+  <div class="mermaid">
+flowchart TD
+    T1["Trigger 1: boot.service\n(every boot)"] --> SCAN["Scan all /dev/vd(b..z)\nGet Cinder UUID via lsblk SERIAL"]
+    T2["Trigger 2: udev rule\n(hot-attach)"] --> SINGLE["Single new device\nGet Cinder UUID via lsblk SERIAL"]
+    SCAN --> QUERY["Query Custom Metadata Server\nGET /v1/volumes/UUID"]
+    SINGLE --> QUERY
+    QUERY --> CHECK_FLAG{"encrypt = true?"}
+    CHECK_FLAG -->|No| SKIP["Skip this volume"]
+    CHECK_FLAG -->|Yes| CHECK_LUKS{"cryptsetup isLuks?"}
+    CHECK_LUKS -->|"No — new volume"| PATH_A
+    CHECK_LUKS -->|"Yes — existing volume"| PATH_B
+    subgraph PATH_A["Path A: First-time encryption"]
+        A1["Generate random passphrase\nhead -c 32 /dev/urandom\n(memory only)"]
+        A1 --> A2["POST OpenBao transit/encrypt/luks-master\nGet ciphertext back"]
+        A2 --> A3["PUT ciphertext to OpenBao KV\nluks/data/volumes/UUID"]
+        A3 --> A4["cryptsetup luksFormat --type luks2"]
+        A4 --> A5["cryptsetup open\nmkfs.ext4\nmount /mnt/UUID"]
+        A5 --> A6["Backup LUKS header to OpenBao KV"]
+        A6 --> A7["Wipe passphrase from memory\nUpdate /etc/fstab"]
+    end
+    subgraph PATH_B["Path B: Unlock existing"]
+        B1["GET ciphertext from OpenBao KV\nluks/data/volumes/UUID"]
+        B1 --> B2["POST OpenBao transit/decrypt/luks-master\nGet passphrase back"]
+        B2 --> B3["cryptsetup open\nmount /mnt/UUID"]
+        B3 --> B4["Wipe passphrase from memory"]
+    end
+  </div>
+</div>
+
+<!-- Detailed sequence diagrams -->
+<span class="sl">Detailed sequence diagrams</span>
+
+<div class="diagram-card">
+  <h2>Path A — First-time encryption</h2>
+  <p class="desc">New volume: generate passphrase, encrypt via Transit, store in KV, create LUKS header, mount</p>
+  <div class="mermaid">
+sequenceDiagram
+    participant Agent as luks-agent
+    participant TR as OpenBao Transit
+    participant KV as OpenBao KV
+    participant VOL as Volume /dev/vdX
+    Note over Agent: encrypt=true, isLuks=No → new volume
+    Agent->>Agent: Generate passphrase<br/>head -c 32 /dev/urandom (memory only)
+    Agent->>TR: POST transit/encrypt/luks-master<br/>{plaintext: base64(passphrase)}
+    Note over TR: Encrypts with internal key<br/>Stores nothing
+    TR-->>Agent: ciphertext vault:v1:8SD...
+    Agent->>KV: PUT luks/data/volumes/VOL_UUID<br/>{ciphertext: vault:v1:8SD...}
+    Note over KV: Stored permanently by volume UUID
+    Agent->>VOL: cryptsetup luksFormat --type luks2 --key-file -
+    Note over VOL: LUKS header created
+    Agent->>VOL: cryptsetup open
+    Agent->>VOL: mkfs.ext4 + mount /mnt/UUID
+    Agent->>KV: Backup LUKS header
+    Note over Agent: unset PASS — passphrase exists nowhere
+  </div>
+</div>
+
+<div class="diagram-card">
+  <h2>Path B — Unlock existing volume</h2>
+  <p class="desc">Existing encrypted volume: retrieve ciphertext from KV, decrypt via Transit, unlock and mount</p>
+  <div class="mermaid">
+sequenceDiagram
+    participant Agent as luks-agent
+    participant KV as OpenBao KV
+    participant TR as OpenBao Transit
+    participant VOL as Volume /dev/vdX
+    Note over Agent: encrypt=true, isLuks=Yes → existing volume
+    Agent->>KV: GET luks/data/volumes/VOL_UUID
+    KV-->>Agent: ciphertext vault:v1:8SD...
+    Agent->>TR: POST transit/decrypt/luks-master<br/>{ciphertext: vault:v1:8SD...}
+    TR-->>Agent: plaintext passphrase
+    Agent->>VOL: cryptsetup open --key-file -
+    Agent->>VOL: mount /mnt/UUID
+    Note over Agent: unset PASS — volume stays mounted
+  </div>
+</div>
+
+<!-- Hot-attach + token renewal -->
+<span class="sl">Hot-attach + token renewal</span>
+
+<div class="diagram-card">
+  <h2>Hot-attach flow</h2>
+  <p class="desc">Running VM: udev detects new volume, queries Metadata Service for encryption flag, routes to Path A or B</p>
+  <div class="mermaid">
+sequenceDiagram
+    participant Cust as Customer
+    participant Nova as Nova
+    participant VM as Running VM
+    participant MetaSrv as Custom Metadata Server
+    participant BAO as OpenBao
+    Cust->>Nova: openstack server add volume my-vm my-secure-vol
+    Nova->>VM: Attach volume
+    Note over VM: /dev/vdc appears
+    VM->>VM: udev rule fires<br/>systemctl start luks-agent@vdc
+    VM->>VM: Get Cinder UUID via lsblk SERIAL
+    VM->>MetaSrv: GET /v1/volumes/vol-uuid
+    MetaSrv-->>VM: {encrypt: true}
+    VM->>VM: isLuks? No → Path A
+    VM->>VM: Generate passphrase
+    VM->>BAO: Transit encrypt + KV store
+    VM->>VM: luksFormat + open + mkfs + mount
+    Note over VM: /mnt/vol-uuid ready, no reboot
+  </div>
+</div>
+
+<div class="diagram-card">
+  <h2>Token renewal</h2>
+  <p class="desc">Systemd timer fires every 45 minutes; VM calls IMDS /v1/renew; IMDS signs fresh JWT and exchanges for new token</p>
+  <div class="mermaid">
+sequenceDiagram
+    participant Timer as systemd timer
+    participant VM as Guest VM
+    participant IMDS as IMDS
+    participant BAO as OpenBao
+    loop Every 45 minutes
+        Timer->>VM: Fire luks-token-renew.service
+        VM->>IMDS: POST /v1/renew
+        Note over IMDS: Verify VM by source IP<br/>Look up instance-id from IP<br/>Sign new JWT (RSA-4096)
+        IMDS->>BAO: POST /auth/jwt/login with new JWT
+        BAO-->>IMDS: Fresh token (1h TTL)
+        IMDS-->>VM: New token
+        VM->>VM: Write to /run/bao-token (0600)
+        Note over VM: Token refreshed<br/>Next LUKS operation uses new token
+    end
+  </div>
+</div>
+
+<!-- Volume migration -->
+<span class="sl">Volume migration</span>
+
+<div class="diagram-card">
+  <h2>Volume migration between VMs</h2>
+  <p class="desc">Detach volume from VM-A, attach to VM-B; same passphrase retrieved from OpenBao; no re-encryption needed</p>
+  <div class="mermaid">
+sequenceDiagram
+    participant A as VM-A
+    participant OS as Nova / Cinder
+    participant BAO as OpenBao
+    participant B as VM-B
+    A->>A: umount + cryptsetup close
+    A->>OS: Detach volume
+    OS->>B: Attach volume to VM-B
+    Note over B: /dev/vdX appears
+    B->>B: lsblk SERIAL → volume UUID
+    B->>B: cryptsetup isLuks → Yes
+    B->>BAO: GET luks/data/volumes/UUID
+    BAO-->>B: ciphertext
+    B->>BAO: POST transit/decrypt
+    BAO-->>B: passphrase
+    B->>B: cryptsetup open + mount
+    Note over B: Same volume, different VM<br/>Same passphrase via OpenBao
+  </div>
+</div>
+
+<!-- OpenBao internals -->
+<span class="sl">OpenBao internals</span>
+
+<div class="diagram-card">
+  <h2>What is inside OpenBao</h2>
+  <p class="desc">Auth, secret engines, policies, barrier encryption — all components the VM interacts with</p>
+  <div class="mermaid">
+flowchart TD
+    subgraph BAO["OpenBao — https://openbao:8200"]
+        subgraph AUTH["Auth"]
+            JWT["JWT Auth (existing)\n/auth/jwt/login\nValidates RSA-4096 signed JWT\nReturns project-scoped token"]
+        end
+        subgraph SECRETS["Secret engines"]
+            TR["Transit (new)\n/transit/encrypt/luks-master\n/transit/decrypt/luks-master\nEncrypts/decrypts passphrases\nKey in memory only, stores nothing"]
+            KV["KV Store (new)\n/luks/data/volumes/uuid\nStores ciphertext by volume UUID\nStores LUKS header backups"]
+        end
+        subgraph SYS["System"]
+            POLICY["Policies\nJWT role gets: Transit + KV access\nScoped to project"]
+            BARRIER["Barrier encryption\nAll data encrypted on disk\nProtected by unseal keys"]
+        end
+    end
+    VM["Guest VM"] -->|"Token from JWT auth"| AUTH
+    VM -->|"Encrypt/decrypt passphrase"| TR
+    VM -->|"Store/read ciphertext"| KV
+    KV --> BARRIER
+  </div>
+</div>
+
+<!-- Complete picture -->
+<span class="sl">Complete picture</span>
+
+<div class="diagram-card">
+  <h2>End-to-end customer experience</h2>
+  <p class="desc">From volume creation to SSH access: everything that happens automatically behind the scenes</p>
+  <div class="mermaid">
+sequenceDiagram
+    participant Cust as Customer
+    participant Cinder as Cinder
+    participant Nova as Nova
+    participant MetaSvc as Metadata Service
+    participant IMDS as IMDS
+    participant BAO as OpenBao
+    participant VM as Guest VM
+    rect rgb(230, 241, 251)
+    Note over Cust,Cinder: Customer creates volume
+    Cust->>Cinder: openstack volume create --type secure-volume --size 100
+    Note over Cinder: Type has openbao_encrypt=true<br/>Cinder does no encryption itself
+    end
+    rect rgb(225, 245, 238)
+    Note over Cust,VM: VM boots with any image
+    Cust->>Nova: openstack server create + add volume
+    Nova->>VM: Boot VM with vendor data (fetcher + config)
+    VM->>VM: cloud-init runs fetcher → downloads + installs luks-agent
+    Note over VM: Subsequent boots skip vendor data,<br/>systemd starts luks-agent directly
+    end
+    rect rgb(238, 237, 254)
+    Note over VM,BAO: luks-agent starts
+    VM->>IMDS: Get BAO token
+    IMDS->>BAO: JWT login → token
+    IMDS-->>VM: BAO token
+    VM->>MetaSvc: GET /v1/volumes/vol-abc — encrypt?
+    MetaSvc-->>VM: encrypt: true
+    VM->>VM: New volume → Path A
+    VM->>BAO: Transit encrypt passphrase + KV store
+    VM->>VM: luksFormat + mkfs + mount
+    VM->>VM: Wipe passphrase
+    end
+    rect rgb(250, 236, 231)
+    Note over Cust: Ready
+    Cust->>VM: SSH in
+    Note over VM: /mnt/vol-abc mounted, encrypted, transparent
+    end
+  </div>
+</div>
+
+<div class="diagram-card">
+  <h2>Architecture overview</h2>
+  <p class="desc">All components and how they interact: customer actions, infrastructure services, and VM internals</p>
+  <div class="mermaid">
+flowchart TD
+    subgraph CUST["Customer"]
+        C1["Create volume\n--type secure-volume"]
+        C2["Create VM\nany image"]
+        C3["SSH in\nUse /mnt/uuid"]
+    end
+    subgraph INFRA["Your infrastructure"]
+        IMDS_SVC["IMDS (token minting only)\nSigns JWT + BAO login\n/v1/token (at boot)\n/v1/renew (every 45 min)"]
+        META_SVC["Metadata Service (vendor data + volume flags)\nBuilds vendor_data2.json at boot\n/v1/volumes/UUID on hot-attach\nAuth via Keystone → queries Cinder"]
+        BAO_SVC["OpenBao\nJWT auth (existing)\nTransit: encrypt/decrypt (new)\nKV: ciphertext storage (new)"]
+        CINDER_SVC["Cinder\nVolume type: secure-volume\nProperty: openbao_encrypt=true"]
+        KS_SVC["Keystone\nService auth for Metadata Service"]
+        NOVA_SVC["Nova\nServes vendor data (fetcher + config)\nvia 169.254.169.254"]
+    end
+    subgraph VM_INT["Inside VM (automatic)"]
+        CI["cloud-init (first boot only)\nRuns fetcher from vendor data\nDownloads + installs luks-agent"]
+        AGENT["luks-agent.sh\nQueries metadata server per-volume\nSame flow for boot + hot-attach"]
+        LUKS["LUKS encrypted volumes\n/dev/mapper/crypt-UUID\nMounted at /mnt/UUID"]
+    end
+    C1 --> CINDER_SVC
+    C2 --> NOVA_SVC
+    NOVA_SVC -->|"169.254.169.254"| CI
+    CI --> AGENT
+    AGENT -->|"GET /v1/token + /v1/renew"| IMDS_SVC
+    IMDS_SVC -->|"JWT login"| BAO_SVC
+    AGENT -->|"GET /v1/volumes/UUID"| META_SVC
+    META_SVC -->|"Volume type check"| CINDER_SVC
+    AGENT -->|"Transit + KV"| BAO_SVC
+    AGENT --> LUKS
+    LUKS --> C3
+  </div>
+</div>
+
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    themeVariables: {
+      darkMode: dark,
+      fontSize: '13px',
+      lineColor: dark ? '#9c9a92' : '#73726c',
+      textColor: dark ? '#c2c0b6' : '#3d3d3a',
+      primaryColor: dark ? '#3C3489' : '#EEEDFE',
+      primaryTextColor: dark ? '#CECBF6' : '#26215C',
+      primaryBorderColor: dark ? '#AFA9EC' : '#534AB7',
+      secondaryColor: dark ? '#085041' : '#E1F5EE',
+      secondaryTextColor: dark ? '#9FE1CB' : '#04342C',
+      secondaryBorderColor: dark ? '#5DCAA5' : '#0F6E56',
+      tertiaryColor: dark ? '#444441' : '#F1EFE8',
+      tertiaryTextColor: dark ? '#D3D1C7' : '#2C2C2A',
+      tertiaryBorderColor: dark ? '#B4B2A9' : '#5F5E5A',
+    }
+  });
+</script>
+</body>
+</html>
