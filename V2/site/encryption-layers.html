@@ -114,12 +114,12 @@
     <span class="logo">Ways to Encrypt</span>
     <a href="plan.html" style="color:var(--accent);font-weight:600">Guest OS Encryption &rarr;</a>
     <a href="benchmark.html" style="color:var(--accent);font-weight:600">Cinder Comparison &rarr;</a>
-    <a onclick="switchTab('overview')">Overview</a>
-    <a onclick="switchTab('dmcrypt')">dm-crypt</a>
-    <a onclick="switchTab('nova')">Nova</a>
-    <a onclick="switchTab('cinder_bench')">Cinder</a>
-    <a onclick="switchTab('rbd_bench')">RBD</a>
-    <a onclick="switchTab('comparison')">Comparison</a>
+    <a href="#overview">Overview</a>
+    <a href="#dmcrypt">dm-crypt</a>
+    <a href="#nova">Nova</a>
+    <a href="#cinder_bench">Cinder</a>
+    <a href="#rbd_bench">RBD</a>
+    <a href="#comparison">Comparison</a>
   </div>
 </div>
 
@@ -1531,39 +1531,39 @@ Ceph source verified at commit <code>f477f201832</code>.
 </p>
 </div>
 <script>
-function switchTab(tab) {
+const VALID_TABS = ['overview','dmcrypt','nova','cinder_bench','rbd_bench','comparison'];
+
+function switchTab(tabName, opts) {
+  opts = opts || {};
+  if (!VALID_TABS.includes(tabName)) tabName = 'overview';
+
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-  document.getElementById('tab-' + tab).classList.add('active');
-  event.target.classList.add('active');
-  window.scrollTo(0, 0);
+
+  const selectedTab = document.getElementById('tab-' + tabName);
+  if (selectedTab) selectedTab.classList.add('active');
+
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    if (btn.getAttribute('onclick') === "switchTab('" + tabName + "')") {
+      btn.classList.add('active');
+    }
+  });
+
+  if (!opts.fromHash) {
+    history.replaceState(null, '', '#' + tabName);
+    window.scrollTo(0, 0);
+  }
 }
+
+function tabFromHash() {
+  const h = (location.hash || '').replace(/^#/, '');
+  return VALID_TABS.includes(h) ? h : 'overview';
+}
+
+window.addEventListener('DOMContentLoaded', () => switchTab(tabFromHash(), {fromHash: true}));
+window.addEventListener('hashchange', () => switchTab(tabFromHash(), {fromHash: true}));
 </script>
 </div>
-
-<script>
-function switchTab(tabName) {
-  // Hide all tabs
-  const tabs = document.querySelectorAll('.tab-content');
-  tabs.forEach(tab => tab.classList.remove('active'));
-  
-  // Remove active class from all buttons
-  const buttons = document.querySelectorAll('.tab-btn');
-  buttons.forEach(btn => btn.classList.remove('active'));
-  
-  // Show selected tab
-  const selectedTab = document.getElementById('tab-' + tabName);
-  if (selectedTab) {
-    selectedTab.classList.add('active');
-  }
-  
-  // Mark button as active
-  const activeBtn = event?.target;
-  if (activeBtn) {
-    activeBtn.classList.add('active');
-  }
-}
-</script>
 
 </body>
 </html>

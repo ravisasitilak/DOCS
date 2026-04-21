@@ -169,66 +169,56 @@ flowchart LR
 
 <!-- Metadata service detail -->
 <div class="card">
-  <h3>Metadata Service &mdash; two modes</h3>
+  <h3>Custom Metadata Server &mdash; one mode, same flow for boot and hot-attach</h3>
 
-  <h4>At boot: Nova vendor data provider</h4>
-  <p>Nova has a pluggable vendor data system (<code>vendordata_dynamic_targets</code> in Nova config). You register the metadata service as a dynamic vendor data provider. At VM creation, Nova calls it with the instance details. The metadata service authenticates to Keystone, queries Cinder for attached volume types, builds <code>volumes.json</code>, returns it. Nova serves it at <code>169.254.169.254</code> as part of <code>vendor_data2.json</code>. cloud-init fetches it automatically.</p>
+  <p>The image already has cloud-init with the OpenStack datasource built in. When a VM boots, cloud-init automatically queries Nova's metadata service at <code>169.254.169.254</code> and fetches <strong>vendor data</strong> (operator-provided: our fetcher script + <code>agent.conf</code>) and <strong>user data</strong> (tenant-provided: customer's own scripts). cloud-init combines both and runs them. Our vendor data contains a fetcher that downloads and installs luks-agent.</p>
 
-  <h4>On hot-attach: direct API</h4>
-  <p>When a volume is hot-attached, Nova metadata at <code>169.254.169.254</code> doesn't automatically update. So the VM queries the metadata service directly at a separate endpoint: <code>GET /v1/volumes/{cinder-uuid}</code>. The metadata service verifies the calling VM (source IP), authenticates via Keystone, queries Cinder for the volume type, returns <code>{encrypt: true/false}</code>.</p>
+  <p>Once luks-agent is running, it queries the <strong>custom metadata server</strong> per-volume with the volume UUID to check if it needs encryption. <strong>Same flow for boot and hot-attach</strong> &mdash; the agent sends UUIDs, gets back encrypt yes/no. Nova does not pre-fetch or cache volume flags. There is no <code>volumes.json</code>.</p>
+
+  <h4>The only endpoint: GET /v1/volumes/{uuid}</h4>
+  <p>Verifies VM by source IP → authenticates to Keystone → queries Cinder for the volume's extra_specs → returns <code>{encrypt: true/false}</code>.</p>
 </div>
 
-<!-- Keystone auth for Metadata Service -->
+<!-- Keystone auth for Metadata Server -->
 <div class="card">
-  <h3 id="keystone">Keystone authentication &mdash; Metadata Service → Cinder</h3>
+  <h3 id="keystone">Keystone authentication &mdash; Custom Metadata Server → Cinder</h3>
 
-  <p>The metadata service is a normal OpenStack service. It authenticates to Keystone like any other service (Nova, Neutron, etc.) to get a scoped token, then uses that token to call Cinder APIs. This is standard OpenStack service-to-service auth &mdash; nothing custom.</p>
+  <p>The custom metadata server is a normal OpenStack service. It authenticates to Keystone like any other service (Nova, Neutron, etc.) to get a scoped token, then uses that token to call Cinder APIs. Standard OpenStack service-to-service auth &mdash; nothing custom.</p>
 
   <h4>What it needs from Cinder</h4>
-  <p>The metadata service makes two types of Cinder API calls:</p>
-  <ol>
-    <li><code>GET /v3/volumes</code> &mdash; list volumes attached to an instance (at boot)</li>
+  <p>One read-only API call per volume lookup:</p>
+  <ul>
     <li><code>GET /v3/types/{type_id}/extra_specs</code> &mdash; read volume type extra_specs to check if <code>openbao_encrypt=true</code></li>
-  </ol>
-  <p>Both are read-only. The metadata service never creates, modifies, or deletes anything in Cinder.</p>
+  </ul>
+  <p>Read-only. The custom metadata server never creates, modifies, or deletes anything in Cinder.</p>
 </div>
 
+<!-- NEW DIAGRAM: cloud-init fetches vendor data + user data -->
 <div class="diagram-card">
-  <div class="diagram-label">Metadata service &mdash; boot vs hot-attach</div>
+  <div class="diagram-label">Initial boot &mdash; cloud-init fetches vendor data + user data from Nova metadata</div>
   <pre class="mermaid">
 sequenceDiagram
-    participant Nova
-    participant MetaSvc as Metadata Service
-    participant KS as Keystone
-    participant Cinder
-    participant VM as Guest VM
+    participant VM as Guest VM (image has<br/>cloud-init + OpenStack datasource)
+    participant NovaMeta as Nova Metadata Service<br/>169.254.169.254
+    participant Fetcher as Fetcher script<br/>(from vendor data)
 
-    rect rgba(83, 74, 183, 0.08)
-    Note over Nova, VM: AT BOOT (vendor data provider)
-    Nova->>MetaSvc: Build vendor data for instance-123
-    MetaSvc->>KS: Auth
-    KS-->>MetaSvc: Scoped token
-    MetaSvc->>Cinder: GET volumes for instance-123
-    Cinder-->>MetaSvc: vol-abc type=secure-volume
-    MetaSvc->>Cinder: GET type extra_specs
-    Cinder-->>MetaSvc: openbao_encrypt=true
-    MetaSvc-->>Nova: volumes.json
-    Nova->>VM: Serve via 169.254.169.254
-    VM->>VM: cloud-init writes volumes.json
-    end
-
-    rect rgba(15, 110, 86, 0.08)
-    Note over VM, Cinder: ON HOT-ATTACH (direct query)
-    VM->>MetaSvc: GET /v1/volumes/vol-xyz
-    Note over MetaSvc: Verify VM by source IP
-    MetaSvc->>KS: Auth (cached or refresh)
-    KS-->>MetaSvc: Scoped token
-    MetaSvc->>Cinder: GET type extra_specs
-    Cinder-->>MetaSvc: openbao_encrypt=true
-    MetaSvc-->>VM: encrypt: true
-    end
+    Note over VM: VM boots
+    VM->>VM: cloud-init starts<br/>(OpenStack datasource configured)
+    VM->>NovaMeta: GET /openstack/latest/vendor_data2.json
+    NovaMeta-->>VM: vendor data (operator)<br/>fetcher script + agent.conf
+    VM->>NovaMeta: GET /openstack/latest/user_data
+    NovaMeta-->>VM: user data (tenant's own scripts)
+    Note over VM: cloud-init combines vendor data + user data
+    VM->>Fetcher: Run fetcher script (from vendor data)
+    Fetcher->>Fetcher: Download luks-agent.sh,<br/>systemd units, udev rules
+    Fetcher->>VM: Install to /usr/local/bin,<br/>/etc/systemd/system, /etc/udev/rules.d
+    VM->>VM: Enable + start luks-agent-boot.service
+    VM->>VM: Run user data scripts<br/>(customer's own, independent)
+    Note over VM: On subsequent boots: scripts already installed,<br/>cloud-init re-fetches vendor data but fetcher is idempotent
   </pre>
 </div>
+
+<p style="font-size:13px;color:var(--muted)">&rarr; See <a href="#volumes-json">How the agent knows which volumes to encrypt</a> for the detailed per-volume sequence.</p>
 
 <!-- Overview diagram -->
 <div class="diagram-card">
@@ -367,7 +357,7 @@ flowchart LR
 </div>
 
 <div class="callout callout-warn">
-  <strong>Vendor data contains NO secrets and NO actual scripts.</strong> Only a fetcher script, config, and volume flags. The fetcher downloads the real scripts at first boot. The BAO token comes from the IMDS JWT auth flow at runtime &mdash; IMDS is a separate service.
+  <strong>Vendor data contains NO secrets and NO actual scripts.</strong> Only a fetcher script and <code>agent.conf</code>. The fetcher downloads the real scripts at first boot. The BAO token comes from IMDS at runtime. Volume encryption flags come from the custom metadata server at runtime. No <code>volumes.json</code>.
 </div>
 
 <div class="card">
@@ -376,7 +366,7 @@ flowchart LR
     <thead><tr><th>File</th><th>Purpose</th></tr></thead>
     <tbody>
       <tr><td><code>/usr/local/bin/luks-agent.sh</code></td><td>Main encryption/decryption script</td></tr>
-      <tr><td><code>/etc/luks-agent/agent.conf</code></td><td>Config: OpenBao address, metadata svc address, Transit key name</td></tr>
+      <tr><td><code>/etc/luks-agent/agent.conf</code></td><td>Config: OpenBao address, custom metadata server address, IMDS address, Transit key name</td></tr>
       <tr><td><code>/etc/systemd/system/luks-agent-boot.service</code></td><td>Runs luks-agent on every boot</td></tr>
       <tr><td><code>/etc/systemd/system/luks-agent@.service</code></td><td>Template unit for hot-attach</td></tr>
       <tr><td><code>/etc/systemd/system/luks-token-renew.service</code></td><td>Token renewal oneshot</td></tr>
@@ -388,80 +378,42 @@ flowchart LR
 </div>
 
 <!-- ============================================================ -->
-<!-- VOLUMES.JSON                                                   -->
+<!-- HOW VOLUME ENCRYPTION FLAGS WORK                               -->
 <!-- ============================================================ -->
-<h2 id="volumes-json">How <code>volumes.json</code> gets created and delivered</h2>
-<p>This is the per-volume encryption flag file. It tells luks-agent which volumes to encrypt at boot. <strong>The metadata service creates it &mdash; not IMDS, not the VM.</strong></p>
+<h2 id="volumes-json">How the agent knows which volumes to encrypt</h2>
+<p>There is no <code>volumes.json</code>. The luks-agent queries the custom metadata server per-volume at runtime &mdash; same flow for boot and hot-attach.</p>
 
 <div class="diagram-card">
-  <div class="diagram-label">volumes.json creation flow</div>
+  <div class="diagram-label">Per-volume encryption check (boot + hot-attach)</div>
   <pre class="mermaid">
 sequenceDiagram
-    participant Nova
-    participant MetaSvc as Metadata Service
+    participant VM as luks-agent
+    participant MetaSrv as Custom Metadata Server
     participant KS as Keystone
     participant Cinder
-    participant VM as Guest VM
 
-    Nova->>MetaSvc: Build vendor data for instance-123
-
-    MetaSvc->>KS: Auth
-    KS-->>MetaSvc: Scoped token
-
-    MetaSvc->>Cinder: GET volumes for instance
-    Cinder-->>MetaSvc: vol-abc (secure-volume), vol-def (default)
-
-    MetaSvc->>Cinder: GET extra_specs for secure-volume
-    Cinder-->>MetaSvc: openbao_encrypt = true
-
-    Note over MetaSvc: Build volumes.json:<br/>vol-abc → encrypt: true<br/>vol-def → encrypt: false
-
-    MetaSvc-->>Nova: vendor_data2.json
-
-    Nova->>VM: Boot VM, serve metadata
-    VM->>VM: cloud-init writes<br/>/etc/luks-agent/volumes.json
+    VM->>VM: Scan /dev/vd[b-z]<br/>Get UUID via lsblk SERIAL
+    loop For each volume
+        VM->>MetaSrv: GET /v1/volumes/{uuid}
+        Note over MetaSrv: Verify VM by source IP
+        MetaSrv->>KS: Auth (cached)
+        KS-->>MetaSrv: Scoped token
+        MetaSrv->>Cinder: GET type extra_specs for volume
+        Cinder-->>MetaSrv: openbao_encrypt = true (or false)
+        MetaSrv-->>VM: {encrypt: true}
+    end
+    VM->>VM: encrypt=true + no LUKS header → Path A<br/>encrypt=true + LUKS header → Path B<br/>encrypt=false → skip
   </pre>
 </div>
 
 <div class="card">
-  <h3>Golden image path &mdash; how does it get volumes.json?</h3>
-  <p>The golden image has luks-agent pre-installed, but does <strong>not</strong> ship with a <code>volumes.json</code>. That file is different for every VM. Two options:</p>
-
-  <h4>Option 1: Metadata service still serves minimal vendor data</h4>
-  <p>Even with golden image, the metadata service generates <code>vendor_data2.json</code> containing just <code>volumes.json</code> and the BAO token (not the luks-agent script &mdash; already in the image). cloud-init picks it up.</p>
-
-  <h4>Option 2: Agent queries metadata service directly at boot</h4>
-  <p>luks-agent calls metadata service <code>GET /v1/volumes/{uuid}</code> for each block device at boot &mdash; same as hot-attach. No file needed.</p>
-
-  <table>
-    <thead><tr><th></th><th>Option 1: Minimal vendor data</th><th>Option 2: Direct query</th></tr></thead>
-    <tbody>
-      <tr><td><strong>Boot speed</strong></td><td>One bulk fetch (all volumes at once)</td><td>N API calls (one per volume)</td></tr>
-      <tr><td><strong>Dependency</strong></td><td>Needs cloud-init in the image</td><td>No cloud-init needed</td></tr>
-      <tr><td><strong>Consistency</strong></td><td>Same mechanism as vendor data path</td><td>Same mechanism as hot-attach</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<div class="card">
-  <h3>What volumes.json looks like</h3>
-  <pre><code>{
-  "volumes": [
-    {
-      "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "device": "/dev/vdb",
-      "encrypt": true,
-      "volume_type": "secure-volume"
-    },
-    {
-      "uuid": "f9e8d7c6-b5a4-3210-fedc-ba0987654321",
-      "device": "/dev/vdc",
-      "encrypt": false,
-      "volume_type": "default"
-    }
-  ]
-}</code></pre>
-  <p>Generated dynamically by the metadata service per VM. Reflects the actual volumes attached to this specific instance at creation time.</p>
+  <h3>Why no volumes.json?</h3>
+  <ul>
+    <li>No stale data &mdash; agent always gets the current state from Cinder via the metadata server</li>
+    <li>Same flow for boot and hot-attach &mdash; no special cases</li>
+    <li>Vendor data stays minimal (fetcher + config only)</li>
+    <li>Works with golden image too &mdash; agent queries metadata server regardless of how it was installed</li>
+  </ul>
 </div>
 
 <!-- ============================================================ -->
@@ -545,33 +497,6 @@ openstack volume create --size 100 my-logs</code></pre>
   <p>Plain Cinder type &mdash; no <code>--encryption-provider</code>, no Barbican. It's purely a flag.</p>
 </div>
 
-<div class="diagram-card">
-  <div class="diagram-label">Per-volume property check &mdash; boot vs hot-attach</div>
-  <pre class="mermaid">
-sequenceDiagram
-    participant Agent as luks-agent
-    participant MetaSvc as Metadata Svc
-    participant KS as Keystone
-    participant Cinder
-
-    rect rgba(83, 74, 183, 0.08)
-    Note over Agent: AT BOOT
-    Agent->>Agent: Read volumes.json
-    Note over Agent: vol-abc → encrypt: true<br/>vol-def → encrypt: false
-    end
-
-    rect rgba(15, 110, 86, 0.08)
-    Note over Agent: ON HOT-ATTACH
-    Agent->>Agent: lsblk SERIAL → vol-xyz
-    Agent->>MetaSvc: GET /v1/volumes/vol-xyz
-    MetaSvc->>KS: Auth (cached token)
-    KS-->>MetaSvc: Scoped token
-    MetaSvc->>Cinder: GET type extra_specs
-    Cinder-->>MetaSvc: openbao_encrypt = true
-    MetaSvc-->>Agent: encrypt: true
-    end
-  </pre>
-</div>
 
 <!-- ============================================================ -->
 <!-- AUTH FLOW                                                      -->

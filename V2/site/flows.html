@@ -86,7 +86,7 @@
 <!-- Boot Flow -->
 <div id="boot" class="card">
   <h3>Section 1: Boot flow (every boot)</h3>
-  <p>When a VM boots (first time or reboot), the <code>luks-agent-boot.service</code> scans all attached block devices and determines whether each volume needs encryption or unlocking. Two separate services provide data at boot: IMDS (token only) and Metadata Service (vendor data + volume flags).</p>
+  <p>When a VM boots (first time or reboot), the <code>luks-agent-boot.service</code> scans all attached block devices and determines whether each volume needs encryption or unlocking. The image has cloud-init with OpenStack datasource &mdash; it automatically queries <code>169.254.169.254</code> for vendor data. Three services are involved: Nova metadata (vendor data), IMDS (BAO token), custom metadata server (volume encryption flags).</p>
   <ol>
     <li><strong>Nova vendor data:</strong> Nova serves <code>vendor_data2.json</code> via <code>169.254.169.254</code> containing a fetcher script + <code>agent.conf</code> (OpenBao address, custom metadata server address). Kept small — no actual scripts, no secrets, no volume flags.</li>
     <li><strong>First boot only:</strong> VM boots → cloud-init fetches <code>vendor_data2.json</code> → runs the fetcher script, which downloads <code>luks-agent.sh</code>, systemd units, and udev rules → installs and enables them as systemd services</li>
